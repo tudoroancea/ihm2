@@ -1,3 +1,4 @@
+# Copyright (c) 2023. Tudor Oancea
 import numpy as np
 
 

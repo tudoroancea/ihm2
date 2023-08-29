@@ -1,3 +1,4 @@
+# Copyright (c) 2023. Tudor Oancea
 from casadi import *
 from acados_template import *
 from constants import *

@@ -1,3 +1,4 @@
+# Copyright (c) 2023. Tudor Oancea
 import numpy as np
 import matplotlib.pyplot as plt
 from track_database import Track

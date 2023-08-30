@@ -1,7 +1,6 @@
 # Copyright (c) 2023. Tudor Oancea
-ihm2_gen_code
-ihm2_ocp.json
-ihm2_sim.json
+ihm2*gen_code
+ihm2*.json
 *.pyc
 *.so
 src/track-database

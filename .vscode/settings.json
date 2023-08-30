@@ -1,0 +1,5 @@
+{
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    // "black-formatter.interpreter": ["~/miniforge3/envs/ihm2/bin/python"]
+}

@@ -4,3 +4,9 @@ ihm2_ocp.json
 ihm2_sim.json
 *.pyc
 *.so
+src/track-database
+src/trajectory-planning-helpers
+*.egg-info
+build
+install
+log

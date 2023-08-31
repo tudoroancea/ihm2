@@ -19,7 +19,9 @@
                 "databaseFilename": ""
             },
             "defines": [
-                "TRACK_DATABASE_PATH=\"${workspaceFolder}/src/track-database/track_database/data/\""
+                "TRACK_DATABASE_PATH=\"${workspaceFolder}/src/track-database/track_database/data/\"",
+                "OCP_JSON_PATH=\"${workspaceFolder}/ihm2_ocp.json\"",
+                "SIM_JSON_PATH=\"${workspaceFolder}/ihm2_sim.json\""
             ],
             "macFrameworkPath": [
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks"

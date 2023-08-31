@@ -12,6 +12,13 @@
     "python.autoComplete.extraPaths": [
         "${workspaceFolder}/install/ihm2/lib/python3.9/site-packages",
     ],
+    // C/C++ settings
+    "C_Cpp.default.browse.limitSymbolsToIncludedHeaders": true,
+    "C_Cpp.default.cppStandard": "c++17",
+    "C_Cpp.default.cStandard": "c11",
+    "C_Cpp.errorSquiggles": "enabledIfIncludesResolve",
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.intelliSenseEngineFallback": "enabled",
     // C/C++ files associations
     "files.associations": {
         "acados_sim_solver_ihm2_kin4.h": "c",
@@ -20,6 +27,7 @@
         "sstream": "cpp",
         "__locale": "cpp",
         "dense": "cpp",
-        "string": "cpp"
+        "string": "cpp",
+        "print.h": "c"
     },
 }

@@ -6,21 +6,34 @@
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
 #include "geometry_msgs/msg/pose.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/quaternion.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/twist_stamped.hpp"
 #include "geometry_msgs/msg/vector3.hpp"
 #include "ihm2/common/marker_color.hpp"
 #include "ihm2/msg/controls.hpp"
 #include "ihm2/srv/string.hpp"
+#include "nlohmann/json.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
+#include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/header.hpp"
 #include "std_srvs/srv/empty.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
+#include <fstream>
+
+#define NX IHM2_KIN4_NX
+#define NU IHM2_KIN4_NU
 
 using namespace std;
+
+double clip(double n, double lower, double upper) {
+    return std::max(lower, std::min(n, upper));
+}
 
 geometry_msgs::msg::Quaternion rpy_to_quaternion(double roll, double pitch, double yaw) {
     tf2::Quaternion q;
@@ -83,12 +96,28 @@ visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y,
 
 class SimNode : public rclcpp::Node {
 private:
-    ihm2::msg::Controls::SharedPtr controls_msg;
     rclcpp::Subscription<ihm2::msg::Controls>::SharedPtr controls_sub;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr alternative_controls_sub;
     rclcpp::Service<std_srvs::srv::Empty>::SharedPtr reset_srv;
     rclcpp::Service<std_srvs::srv::Empty>::SharedPtr publish_cones_srv;
     rclcpp::Service<ihm2::srv::String>::SharedPtr load_map_srv;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr viz_pub;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub;
+    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub;
+    rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
+    // rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
+    // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr last_lap_time_pub;
+    // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr best_lap_time_pub;
 
+    rclcpp::TimerBase::SharedPtr sim_timer;
+    // rclcpp::Time sim_start_time;
+    ihm2::msg::Controls controls_msg, controls_target_msg;
+    visualization_msgs::msg::MarkerArray cones_marker;
+    geometry_msgs::msg::PoseStamped pose_msg;
+    geometry_msgs::msg::TwistStamped vel_msg;
+
+    double* x;
+    double* u;
     ihm2_kin4_sim_solver_capsule* acados_sim_capsule;
     sim_config* acados_sim_config;
     sim_in* acados_sim_in;
@@ -96,7 +125,104 @@ private:
     void* acados_sim_dims;
 
     void controls_callback(const ihm2::msg::Controls::SharedPtr msg) {
-        controls_msg = msg;
+        if (!this->get_parameter("manual_control").as_bool()) {
+            this->controls_target_msg = *msg;
+            // clip the controls between the min and max values
+            this->controls_target_msg.throttle = clip(
+                    this->controls_target_msg.throttle,
+                    this->get_parameter("T_min").as_double(),
+                    this->get_parameter("T_max").as_double());
+            this->controls_target_msg.steering = clip(
+                    this->controls_target_msg.steering,
+                    this->get_parameter("delta_min").as_double(),
+                    this->get_parameter("delta_max").as_double());
+            u[0] = this->controls_target_msg.throttle;
+            u[1] = this->controls_target_msg.steering;
+        }
+    }
+
+    void alternative_controls_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
+        if (this->get_parameter("manual_control").as_bool()) {
+            controls_target_msg.throttle = msg->linear.x;
+            controls_target_msg.steering = msg->angular.z;
+            this->controls_target_msg.throttle = clip(
+                    this->controls_target_msg.throttle,
+                    this->get_parameter("T_min").as_double(),
+                    this->get_parameter("T_max").as_double());
+            this->controls_target_msg.steering = clip(
+                    this->controls_target_msg.steering,
+                    this->get_parameter("delta_min").as_double(),
+                    this->get_parameter("delta_max").as_double());
+            u[0] = this->controls_target_msg.throttle;
+            u[1] = this->controls_target_msg.steering;
+        }
+    }
+
+    void publish_cones_srv_cb([[maybe_unused]] const std_srvs::srv::Empty::Request::SharedPtr request, [[maybe_unused]] std_srvs::srv::Empty::Response::SharedPtr response) {
+        this->viz_pub->publish(cones_marker);
+    }
+
+    void reset_srv_cb([[maybe_unused]] const std_srvs::srv::Empty::Request::SharedPtr request, [[maybe_unused]] std_srvs::srv::Empty::Response::SharedPtr response) {
+        // reset the simulation
+        // - reset the car pose
+        // - reset the lap time
+        // - reset the simulation time
+        // - reset the acados sim solver
+    }
+
+    void load_map_srv_cb([[maybe_unused]] const ihm2::srv::String::Request::SharedPtr request, [[maybe_unused]] ihm2::srv::String::Response::SharedPtr response) {
+        // load the map
+        // - load the center line
+        // - load the cones
+        // - publish the cones once
+    }
+
+    void sim_timer_cb() {
+        // simulate one step
+        // - set the controls
+        // - solve the simulation
+        // - publish the car pose
+        // - publish the car velocity
+        // - publish the car mesh
+
+        // set inputs
+        sim_in_set(acados_sim_config, acados_sim_dims,
+                   acados_sim_in, "x", x);
+        sim_in_set(acados_sim_config, acados_sim_dims,
+                   acados_sim_in, "u", u);
+
+        // solve
+        int status = ihm2_kin4_acados_sim_solve(acados_sim_capsule);
+        if (status != ACADOS_SUCCESS) {
+            printf("acados_solve() failed with status %d.\n", status);
+        }
+
+        // get outputs
+        sim_out_get(acados_sim_config, acados_sim_dims,
+                    acados_sim_out, "x", x);
+
+        // override the pose and velocity and controls with the simulation output
+        pose_msg.header.stamp = this->now();
+        pose_msg.header.frame_id = "world";
+        pose_msg.pose.position.x = x[0];
+        pose_msg.pose.position.y = x[1];
+        pose_msg.pose.orientation = rpy_to_quaternion(0.0, 0.0, x[2]);
+        pose_pub->publish(pose_msg);
+
+        vel_msg.header.stamp = this->now();
+        vel_msg.header.frame_id = "car";
+        vel_msg.twist.linear.x = x[3];
+        vel_pub->publish(vel_msg);
+
+        controls_msg.header.stamp = this->now();
+        controls_msg.header.frame_id = "car";
+        controls_msg.throttle = x[NX - 2];
+        controls_msg.steering = x[NX - 1];
+        controls_pub->publish(controls_msg);
+
+        visualization_msgs::msg::MarkerArray markers_msg;
+        markers_msg.markers.push_back(get_car_marker(x[0], x[1], x[2]));
+        viz_pub->publish(markers_msg);
     }
 
 public:
@@ -109,9 +235,23 @@ public:
         // - delta_max: the maximum steering angle
         // - delta_min: the minimum steering angle
         // - manual_control: if true, the car can be controlled by the user
-        //
-
         auto track_name_or_file = declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
+        declare_parameter<double>("T_max", 2000.0);
+        declare_parameter<double>("T_min", -2000.0);
+        declare_parameter<double>("delta_max", 0.5);
+        declare_parameter<double>("delta_min", -0.5);
+        declare_parameter<bool>("manual_control", true);
+
+        // initialize x and u with zeros
+        x = (double*) malloc(sizeof(double) * NX);
+        u = (double*) malloc(sizeof(double) * NU);
+        for (int i = 0; i < NX; i++) {
+            x[i] = 0.0;
+        }
+        for (int i = 0; i < NU; i++) {
+            u[i] = 0.0;
+        }
+        x[2] = M_PI_2;
 
         // load acados sim solver
         // check if the sim solver was generated for the track in question
@@ -126,9 +266,71 @@ public:
         acados_sim_in = ihm2_kin4_acados_get_sim_in(acados_sim_capsule);
         acados_sim_out = ihm2_kin4_acados_get_sim_out(acados_sim_capsule);
         acados_sim_dims = ihm2_kin4_acados_get_sim_dims(acados_sim_capsule);
+
         // publishers
+        this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz", 10);
+        this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("/ihm2/pose", 10);
+        this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/velocity", 10);
+
+        // subscribers
+        this->controls_sub = this->create_subscription<ihm2::msg::Controls>(
+                "/ihm2/controls",
+                10,
+                std::bind(
+                        &SimNode::controls_callback,
+                        this,
+                        std::placeholders::_1));
+        this->alternative_controls_sub = this->create_subscription<geometry_msgs::msg::Twist>(
+                "/ihm2/alternative_controls",
+                10,
+                std::bind(
+                        &SimNode::alternative_controls_callback,
+                        this,
+                        std::placeholders::_1));
+
         // services
+        this->reset_srv = this->create_service<std_srvs::srv::Empty>(
+                "/ihm2/reset",
+                std::bind(
+                        &SimNode::reset_srv_cb,
+                        this,
+                        std::placeholders::_1,
+                        std::placeholders::_2));
+        this->publish_cones_srv = this->create_service<std_srvs::srv::Empty>(
+                "/ihm2/publish_cones",
+                std::bind(
+                        &SimNode::publish_cones_srv_cb,
+                        this,
+                        std::placeholders::_1,
+                        std::placeholders::_2));
+        this->load_map_srv = this->create_service<ihm2::srv::String>(
+                "/ihm2/load_map",
+                std::bind(
+                        &SimNode::load_map_srv_cb,
+                        this,
+                        std::placeholders::_1,
+                        std::placeholders::_2));
+
+#ifdef SIM_JSON_PATH
+        // read json file with nlohmann_json in ["solver_options"]["Tsim"]
+        std::string sim_json_path = SIM_JSON_PATH;
+        std::ifstream sim_json_file(sim_json_path);
+        if (!sim_json_file.is_open()) {
+            throw std::runtime_error("Could not open " + sim_json_path);
+        }
+        nlohmann::json sim_json;
+        sim_json_file >> sim_json;
+        double sim_dt = sim_json["solver_options"]["Tsim"];
+#else
+        throw std::runtime_error("SIM_JSON_PATH not defined");
+#endif
+
         // create a timer for the simulation loop (one simulation step and publishing the car mesh)
+        this->sim_timer = this->create_wall_timer(
+                std::chrono::duration<double>(sim_dt),
+                std::bind(
+                        &SimNode::sim_timer_cb,
+                        this));
     }
 
     ~SimNode() {
@@ -136,8 +338,9 @@ public:
         if (status) {
             printf("ihm2_kin4_acados_sim_free() returned status %d. \n", status);
         }
-
         ihm2_kin4_acados_sim_solver_free_capsule(acados_sim_capsule);
+        free(x);
+        free(u);
     }
 };
 

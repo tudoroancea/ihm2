@@ -379,7 +379,7 @@ def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
 
     # generate sim solver
     sim_solver_opts = AcadosSimOpts()
-    sim_solver_opts.T = dt
+    sim_solver_opts.T = 0.01
     sim_solver_opts.num_stages = 4
     sim_solver_opts.num_steps = 10
     sim_solver_opts.integrator_type = "IRK"

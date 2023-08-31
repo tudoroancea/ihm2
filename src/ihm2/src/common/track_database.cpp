@@ -4,10 +4,6 @@
 #include <filesystem>
 #include <vector>
 
-// using namespace std;
-// using namespace Eigen;
-
-
 std::string validate_track_name_or_file(const std::string& track_name_or_file) {
 #ifdef TRACK_DATABASE_PATH
     std::filesystem::path tdb_track(TRACK_DATABASE_PATH), other_track(track_name_or_file), actual_track;
@@ -83,7 +79,7 @@ void load_center_line(
     size_t row_count = center_line_csv.GetRowCount();
     center_line.resize(row_count, 2);
     track_widths.resize(row_count, 2);
-    for (size_t i=0; i < row_count; ++i) {
+    for (size_t i = 0; i < row_count; ++i) {
         center_line(i, 0) = center_line_csv.GetCell<double>("x", i);
         center_line(i, 1) = center_line_csv.GetCell<double>("y", i);
         track_widths(i, 0) = center_line_csv.GetCell<double>("right_width", i);

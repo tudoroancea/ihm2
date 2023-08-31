@@ -90,32 +90,38 @@ cone_marker = lambda id, X, Y, color, small: Marker(
         ),
     ],
 )
+
+
 class MeshPublisher(Node):
     def __init__(self):
         super().__init__("mesh_publisher")
         self.timer = self.create_timer(1.0, self.timer_callback)
         self.publisher = self.create_publisher(MarkerArray, "mesh", 10)
         self.track = Track("fsds_competition_2")
-        self.map_markers = [
-            cone_marker(i, X, Y, "orange", False)
-            for i, (X, Y) in enumerate(self.track.big_orange_cones)
-        ] + [
-            cone_marker(
-                self.track.big_orange_cones.shape[0] + i, X, Y, "blue", True
-            )
-            for i, (X, Y) in enumerate(self.track.blue_cones)
-        ] + [
-            cone_marker(
-                self.track.big_orange_cones.shape[0]
-                + self.track.blue_cones.shape[0]
-                + i,
-                X,
-                Y,
-                "yellow",
-                True,
-            )
-            for i, (X, Y) in enumerate(self.track.yellow_cones)
-        ]
+        self.map_markers = (
+            [
+                cone_marker(i, X, Y, "orange", False)
+                for i, (X, Y) in enumerate(self.track.big_orange_cones)
+            ]
+            + [
+                cone_marker(
+                    self.track.big_orange_cones.shape[0] + i, X, Y, "blue", True
+                )
+                for i, (X, Y) in enumerate(self.track.blue_cones)
+            ]
+            + [
+                cone_marker(
+                    self.track.big_orange_cones.shape[0]
+                    + self.track.blue_cones.shape[0]
+                    + i,
+                    X,
+                    Y,
+                    "yellow",
+                    True,
+                )
+                for i, (X, Y) in enumerate(self.track.yellow_cones)
+            ]
+        )
 
     def timer_callback(self):
         t0 = self.get_clock().now()
@@ -123,7 +129,8 @@ class MeshPublisher(Node):
             MarkerArray(
                 markers=[
                     car_marker(0.0, 0.0, np.pi / 2),
-                ] + self.map_markers
+                ]
+                + self.map_markers
             )
         )
         t1 = self.get_clock().now()

@@ -62,6 +62,7 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_type
 # ihm2 common
 ament_auto_add_library(ihm2_common SHARED
   include/ihm2/external/rapidcsv.hpp
+  include/ihm2/external/icecream.hpp
   include/ihm2/common/cone_color.hpp
   include/ihm2/common/marker_color.hpp
   include/ihm2/common/track_database.hpp

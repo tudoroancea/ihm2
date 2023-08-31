@@ -12,6 +12,7 @@
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "geometry_msgs/msg/vector3.hpp"
 #include "ihm2/common/marker_color.hpp"
+#include "ihm2/external/icecream.hpp"
 #include "ihm2/msg/controls.hpp"
 #include "ihm2/srv/string.hpp"
 #include "nlohmann/json.hpp"
@@ -50,11 +51,11 @@ visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi) {
     marker.mesh_resource = "https://github.com/tudoroancea/ihm2/releases/download/lego-lrt4/lego-lrt4.stl";
     marker.pose.position.x = X;
     marker.pose.position.y = Y;
-    marker.pose.position.z = 0.0;
+    marker.pose.position.z = 0.225;
     marker.pose.orientation = rpy_to_quaternion(0.0, 0.0, M_PI_2 + phi);
-    marker.scale.x = 0.3;
-    marker.scale.y = 0.3;
-    marker.scale.z = 0.3;
+    marker.scale.x = 0.03;
+    marker.scale.y = 0.03;
+    marker.scale.z = 0.03;
     marker.color = marker_colors("white");
     return marker;
 }
@@ -125,36 +126,32 @@ private:
     void* acados_sim_dims;
 
     void controls_callback(const ihm2::msg::Controls::SharedPtr msg) {
+        RCLCPP_INFO(this->get_logger(), "controls_callback");
         if (!this->get_parameter("manual_control").as_bool()) {
-            this->controls_target_msg = *msg;
-            // clip the controls between the min and max values
-            this->controls_target_msg.throttle = clip(
-                    this->controls_target_msg.throttle,
+            RCLCPP_INFO(this->get_logger(), "controls_callback");
+            u[0] = clip(
+                    msg->throttle,
                     this->get_parameter("T_min").as_double(),
                     this->get_parameter("T_max").as_double());
-            this->controls_target_msg.steering = clip(
-                    this->controls_target_msg.steering,
+            u[1] = clip(
+                    u[1],
                     this->get_parameter("delta_min").as_double(),
                     this->get_parameter("delta_max").as_double());
-            u[0] = this->controls_target_msg.throttle;
-            u[1] = this->controls_target_msg.steering;
         }
     }
 
     void alternative_controls_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
+        RCLCPP_INFO(this->get_logger(), "alternative_controls_callback");
         if (this->get_parameter("manual_control").as_bool()) {
-            controls_target_msg.throttle = msg->linear.x;
-            controls_target_msg.steering = msg->angular.z;
-            this->controls_target_msg.throttle = clip(
-                    this->controls_target_msg.throttle,
+            RCLCPP_INFO(this->get_logger(), "alternative_controls_callback");
+            u[0] = clip(
+                    msg->linear.x,
                     this->get_parameter("T_min").as_double(),
                     this->get_parameter("T_max").as_double());
-            this->controls_target_msg.steering = clip(
-                    this->controls_target_msg.steering,
+            u[1] = clip(
+                    msg->angular.z,
                     this->get_parameter("delta_min").as_double(),
                     this->get_parameter("delta_max").as_double());
-            u[0] = this->controls_target_msg.throttle;
-            u[1] = this->controls_target_msg.steering;
         }
     }
 
@@ -178,6 +175,7 @@ private:
     }
 
     void sim_timer_cb() {
+        RCLCPP_INFO(this->get_logger(), "sim_timer_cb");
         // simulate one step
         // - set the controls
         // - solve the simulation
@@ -271,17 +269,18 @@ public:
         this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz", 10);
         this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("/ihm2/pose", 10);
         this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/velocity", 10);
+        this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/controls", 10);
 
         // subscribers
         this->controls_sub = this->create_subscription<ihm2::msg::Controls>(
-                "/ihm2/controls",
+                "/ihm2/controls_target",
                 10,
                 std::bind(
                         &SimNode::controls_callback,
                         this,
                         std::placeholders::_1));
         this->alternative_controls_sub = this->create_subscription<geometry_msgs::msg::Twist>(
-                "/ihm2/alternative_controls",
+                "/ihm2/alternative_controls_target",
                 10,
                 std::bind(
                         &SimNode::alternative_controls_callback,

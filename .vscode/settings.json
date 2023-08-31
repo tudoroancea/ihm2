@@ -28,6 +28,7 @@
         "__locale": "cpp",
         "dense": "cpp",
         "string": "cpp",
-        "print.h": "c"
+        "print.h": "c",
+        "__node_handle": "cpp"
     },
 }

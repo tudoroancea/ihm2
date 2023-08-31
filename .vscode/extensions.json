@@ -1,0 +1,23 @@
+{
+    "recommendations": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.isort",
+        "ms-python.black-formatter",
+        "mhutchie.git-graph",
+        "github.vscode-pull-request-github",
+        "eamodio.gitlens",
+        "seatonjiang.gitmoji-vscode",
+        "ldez.ignore-files",
+        "ms-toolsai.jupyter",
+        "yzhang.markdown-all-in-one",
+        "ms-vscode-remote.remote-ssh",
+        "ms-vscode-remote.remote-ssh-edit",
+        "ms-vscode.remote-explorer",
+        "vscodevim.vim",
+        "redhat.vscode-yaml",
+        "github.copilot"
+    ],
+}

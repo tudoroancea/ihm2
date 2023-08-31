@@ -1,5 +1,22 @@
 {
+    // formatting
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "ms-python.black-formatter",
-    // "black-formatter.interpreter": ["~/miniforge3/envs/ihm2/bin/python"]
+    "editor.formatOnSaveMode": "modifications",
+    "C_Cpp.formatting": "clangFormat",
+    "C_Cpp.clang_format_style": "file",
+    // Python interpreter paths
+    "python.defaultInterpreterPath": "${home}/miniforge3/envs/ihm2/bin/python",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/install/ihm2/lib/python3.9/site-packages",
+    ],
+    "python.autoComplete.extraPaths": [
+        "${workspaceFolder}/install/ihm2/lib/python3.9/site-packages",
+    ],
+    // C/C++ files associations
+    "files.associations": {
+        "acados_sim_solver_ihm2_kin4.h": "c",
+        "stdlib.h": "c",
+        "cstdio": "cpp",
+        "sstream": "cpp"
+    },
 }

@@ -17,6 +17,9 @@
         "acados_sim_solver_ihm2_kin4.h": "c",
         "stdlib.h": "c",
         "cstdio": "cpp",
-        "sstream": "cpp"
+        "sstream": "cpp",
+        "__locale": "cpp",
+        "dense": "cpp",
+        "string": "cpp"
     },
 }

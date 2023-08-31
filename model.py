@@ -7,155 +7,157 @@ from icecream import ic
 from time import perf_counter
 
 __all__ = [
-    "gen_kin_model",
+    "gen_model",
     "get_ocp_solver",
     "get_sim_solver",
 ]
 
 
-def gen_kin_model(
-    kappa_ref: Function, right_width: Function, left_width: Function
+def gen_model(
+    id: str, kappa_ref: Function = None, right_width: Function = None, left_width: Function = None
 ) -> tuple[AcadosModel, Function]:
+    assert id in {"kin4", "fkin4", "dyn6", "fdyn6"}
+    is_frenet = id[0] == "f"
+    is_dynamic = id[-1] == 6
+    if is_frenet:
+        assert kappa_ref is not None and right_width is not None and left_width is not None
+
     # set up states & controls
-    s = MX.sym("s")
-    n = MX.sym("n")
-    psi = MX.sym("psi")
-    v = MX.sym("v")
+    x = []
+    if is_frenet:
+        s = MX.sym("s")
+        n = MX.sym("n")
+        psi = MX.sym("psi")
+        x += [s, n, psi]
+    else:
+        X = MX.sym("X")
+        Y = MX.sym("Y")
+        phi = MX.sym("phi")
+        x += [X, Y, phi]
+    if is_dynamic:
+        v_x = MX.sym("v_x")
+        v_y = MX.sym("v_y")
+        r = MX.sym("r")
+        x += [v_x, v_y, r]
+    else:
+        v = MX.sym("v")
+        x += [v]
     T = MX.sym("T")
     delta = MX.sym("delta")
-    x = vertcat(s, n, psi, v, T, delta)
+    x += [T, delta]
+    x = vertcat(*x)
     u_T = MX.sym("u_T")
     u_delta = MX.sym("u_delta")
     u = vertcat(u_T, u_delta)
     xdot = MX.sym("xdot", x.shape)
 
     # longitudinal dynamics
-    F_motor = (C_m0 - C_m1 * v) * T
-    F_drag = -(C_r0 + C_r2 * v * v) * tanh(1000 * v)
+    if is_dynamic:
+        F_motor = (C_m0 - C_m1 * v_x) * T 
+        F_drag = -(C_r0 + C_r2 * v_x * v_x) * tanh(1000 * v_x)
+    else:
+        F_motor = (C_m0 - C_m1 * v) * T
+        F_drag = -(C_r0 + C_r2 * v * v) * tanh(1000 * v)
     F_Rx = 0.5 * F_motor + F_drag
     F_Fx = 0.5 * F_motor
     # lateral dynamics
-    beta = atan(l_R * tan(delta) / (l_R + l_F))
-    # accelerations
-    a_lat = (-F_Rx * sin(beta) + F_Fx * sin(delta - beta)) / m + v * v * sin(beta) / l_R
-    a_long = (F_Rx * cos(beta) + F_Fx * cos(delta - beta)) / m
+    if is_dynamic:
+        F_Rz = m * g * l_R / (l_R + l_F)
+        F_Fz = m * g * l_F / (l_R + l_F)
+        alpha_R = atan2(v_y - l_R * r, v_x)
+        alpha_F = atan2(v_y + l_F * r, v_x) - delta
+        mu_Ry = D * sin(C * atan(B * alpha_R))
+        mu_Fy = D * sin(C * atan(B * alpha_F))
+        F_Ry = F_Rz * mu_Ry
+        F_Fy = F_Fz * mu_Fy
+    else:
+        beta = atan(l_R * tan(delta) / (l_R + l_F))
+        # accelerations
+        a_lat = (-F_Rx * sin(beta) + F_Fx * sin(delta - beta)) / m + v * v * sin(
+            beta
+        ) / l_R
+        a_long = (F_Rx * cos(beta) + F_Fx * cos(delta - beta)) / m
 
-    # constraints
-    right_track_constraint = (
-        n - 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - right_width(s)
-    )
-    left_track_constraint = (
-        -n + 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - left_width(s)
-    )
 
     # Define model
     model = AcadosModel()
-    sdot_expr = (v * cos(psi + beta)) / (1 - kappa_ref(s) * n)
     T_dot = (u_T - T) / t_T
     delta_dot = (u_delta - delta) / t_delta
-    f_expl = vertcat(
-        sdot_expr,
-        v * sin(psi + beta),
-        v * sin(beta) / (l_R + l_F) - kappa_ref(s) * sdot_expr,
-        a_long,
+    f_expl = []
+    if is_frenet:
+        if is_dynamic:
+            sdot_expr = (v_x * cos(psi) - v_y * sin(psi)) / (1 - kappa_ref(s) * n)
+            f_expl += [
+                sdot_expr,
+                v_x * sin(psi) + v_y * cos(psi),
+                r - kappa_ref(s) * sdot_expr,
+            ]
+        else:
+            sdot_expr = (v * cos(psi + beta)) / (1 - kappa_ref(s) * n)
+            f_expl += [
+                sdot_expr,
+                v * sin(psi + beta),
+                v * sin(beta) / (l_R + l_F) - kappa_ref(s) * sdot_expr,
+            ]
+    else:
+        if is_dynamic:
+            f_expl += [
+                v_x * cos(phi) - v_y * sin(phi),
+                v_x * sin(phi) + v_y * cos(phi),
+                r,
+            ]
+        else:
+            f_expl += [
+                v * cos(phi + beta),
+                v * sin(phi + beta),
+                v * sin(beta) / (l_R + l_F),
+            ]
+    if is_dynamic:
+        f_expl += [
+            (F_Rx + F_Fx * cos(delta) - F_Fy * sin(delta)) / m + v_y * r,
+            (F_Ry + F_Fx * sin(delta) + F_Fy * cos(delta)) / m - v_x * r,
+            (l_F * (F_Fx * sin(delta) + F_Fy * cos(delta)) - l_R * F_Ry) / I_z,
+        ]
+    else:
+        f_expl += [
+            a_long,
+        ]
+    f_expl += [
         T_dot,
         delta_dot,
-    )
+    ]
+    f_expl = vertcat(*f_expl)
     model.xdot = xdot
     model.f_impl_expr = xdot - f_expl
     model.f_expl_expr = f_expl
 
     model.x = x
     model.u = u
-    model.name = "ihm2_kin4"
-    model.con_h_expr = vertcat(
-        right_track_constraint,
-        left_track_constraint,
-        T_dot,
-        delta_dot,
-        a_lat,
-    )
-    model.con_h_expr_e = vertcat(
-        right_track_constraint,
-        left_track_constraint,
-    )
-
-    return model
-
-
-def gen_dyn_model(
-    kappa_ref: Function, right_width: Function, left_width: Function
-) -> tuple[AcadosModel, Function]:
-    # set up states & controls
-    s = MX.sym("s")
-    n = MX.sym("n")
-    psi = MX.sym("psi")
-    v_x = MX.sym("v_x")
-    v_y = MX.sym("v_y")
-    r = MX.sym("r")
-    T = MX.sym("T")
-    delta = MX.sym("delta")
-    x = vertcat(s, n, psi, v_x, v_y, r, T, delta)
-    u_T = MX.sym("u_T")
-    u_delta = MX.sym("u_delta")
-    u = vertcat(u_T, u_delta)
-    xdot = MX.sym("xdot", x.shape)
-
-    # longitudinal dynamics
-    F_motor = (C_m0 - C_m1 * v_x) * T
-    F_drag = -(C_r0 + C_r2 * v_x * v_x) * tanh(1000 * v_x)
-    F_Rx = 0.5 * F_motor + F_drag
-    F_Fx = 0.5 * F_motor
-    # lateral dynamics
-    F_Rz = m * g * l_R / (l_R + l_F)
-    F_Fz = m * g * l_F / (l_R + l_F)
-    alpha_R = atan2(v_y - l_R * r, v_x)
-    alpha_F = atan2(v_y + l_F * r, v_x) - delta
-    mu_Ry = D * sin(C * atan(B * alpha_R))
-    mu_Fy = D * sin(C * atan(B * alpha_F))
-    F_Ry = F_Rz * mu_Ry
-    F_Fy = F_Fz * mu_Fy
+    model.name = f"ihm2_{id}"
 
     # constraints
-    right_track_constraint = (
-        n - 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - right_width(s)
-    )
-    left_track_constraint = (
-        -n + 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - left_width(s)
-    )
-
-    # Define model
-    model = AcadosModel()
-    sdot_expr = (v_x * cos(psi) - v_y * sin(psi)) / (1 - kappa_ref(s) * n)
-    T_dot = (u_T - T) / t_T
-    delta_dot = (u_delta - delta) / t_delta
-    f_expl = vertcat(
-        sdot_expr,
-        v_x * sin(psi) + v_y * cos(psi),
-        r,
-        (F_Rx + F_Fx * cos(delta) - F_Fy * sin(delta)) / m + v_y * r,
-        (F_Ry + F_Fx * sin(delta) + F_Fy * cos(delta)) / m - v_x * r,
-        (l_F * (F_Fx * sin(delta) + F_Fy * cos(delta)) - l_R * F_Ry) / I_z,
-        T_dot,
-        delta_dot,
-    )
-    model.xdot = xdot
-    model.f_impl_expr = xdot - f_expl
-    model.f_expl_expr = f_expl
-
-    model.x = x
-    model.u = u
-    model.name = "ihm2_dyn6"
-    model.con_h_expr = vertcat(
-        right_track_constraint,
-        left_track_constraint,
-        T_dot,
-        delta_dot,
-    )
-    model.con_h_expr_e = vertcat(
-        right_track_constraint,
-        left_track_constraint,
-    )
+    if is_frenet:
+        right_track_constraint = (
+            n - 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - right_width(s)
+        )
+        left_track_constraint = (
+            -n + 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - left_width(s)
+        )
+        model.con_h_expr = vertcat(
+            *(
+                [
+                    right_track_constraint,
+                    left_track_constraint,
+                    T_dot,
+                    delta_dot,
+                ]
+                + ([] if is_dynamic else [a_lat])
+            )
+        )
+        model.con_h_expr_e = vertcat(
+            right_track_constraint,
+            left_track_constraint,
+        )
 
     return model
 
@@ -305,8 +307,7 @@ def get_sim_solver(
     sim.model = model
     sim.solver_options = opts
     sim.code_export_directory = code_export_directory
-    builder = sim_get_default_cmake_builder() 
-    # builder.options_on=["BUILD_ACADOS_SIM_SOLVER_LIB"]
+    builder = sim_get_default_cmake_builder()
     return AcadosSimSolver(
         sim,
         json_file="ihm2_sim.json",
@@ -349,11 +350,11 @@ def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
         "left_width", "bspline", [s_ref_extended], left_width_extended
     )
 
-    # generate car model
-    model = gen_kin_model(kappa_ref_expr, right_width_expr, left_width_expr)
+    # generate Frenet model for ocp
+    model = gen_model("fkin4", kappa_ref_expr, right_width_expr, left_width_expr)
 
     # generate ocp solver
-    # for kin4: x = (s, n, psi, v, T, delta), u = (u_T, u_delta)
+    # for fkin4: x = (s, n, psi, v, T, delta), u = (u_T, u_delta)
     Q = np.diag([1e-1, 5e-7, 5e-7, 5e-7, 5e-2, 2.5e-2])
     R = np.diag([5e-1, 1e-1])
     Qe = np.diag([1e-1, 2e-10, 2e-10, 2e-10, 1e-4, 4e-5])
@@ -368,10 +369,13 @@ def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
     ocp_solver_opts.sim_method_num_steps = 1
     t0 = perf_counter()
     ocp_solver = get_ocp_solver(
-        model, ocp_solver_opts, Q, R, Qe, "src/ihm2/ihm2_ocp_gen_code", cmake=True
+        model, ocp_solver_opts, Q, R, Qe, "src/ihm2/ihm2_ocp_gen_code", cmake=False
     )
     t1 = perf_counter()
     print(f"OCP solver generation time: {t1 - t0:.3f} s")
+
+    # generate regular model
+    model = gen_model("kin4")
 
     # generate sim solver
     sim_solver_opts = AcadosSimOpts()
@@ -382,10 +386,10 @@ def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
     sim_solver_opts.collocation_type = "GAUSS_RADAU_IIA"
     t0 = perf_counter()
     sim_solver = get_sim_solver(
-        model, sim_solver_opts, 
+        model,
+        sim_solver_opts,
         "src/ihm2/ihm2_sim_gen_code",
-        # "ihm2_sim_gen_code",
-        cmake=True,
+        cmake=False,
     )
     t1 = perf_counter()
     print(f"Sim solver generation time: {t1 - t0:.3f} s")

@@ -18,7 +18,9 @@
                 "limitSymbolsToIncludedHeaders": true,
                 "databaseFilename": ""
             },
-            "defines": [],
+            "defines": [
+                "TRACK_DATABASE_PATH=\"${workspaceFolder}/src/track-database/track_database/data/\""
+            ],
             "macFrameworkPath": [
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks"
             ],

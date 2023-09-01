@@ -4,17 +4,17 @@
 #include <filesystem>
 #include <vector>
 
-std::string validate_track_name_or_file(const std::string& track_name_or_file) {
+std::string validate_track_name_or_file(const std::string& track_name_or_file, std::string tdb_suffix = "_cones.csv") {
 #ifdef TRACK_DATABASE_PATH
     std::filesystem::path tdb_track(TRACK_DATABASE_PATH), other_track(track_name_or_file), actual_track;
-    tdb_track /= (track_name_or_file + "/" + track_name_or_file + ".csv");
+    tdb_track /= (track_name_or_file + "/" + track_name_or_file + tdb_suffix);
     other_track = std::filesystem::absolute(other_track);
     if (std::filesystem::exists(tdb_track)) {
         actual_track = tdb_track;
     } else if (std::filesystem::exists(other_track)) {
         actual_track = other_track;
     } else {
-        throw std::runtime_error("track " + track_name_or_file + " not found neither in TRACK_DATABASE_PATH nor in the current directory");
+        throw std::runtime_error("track " + track_name_or_file + " not found neither in TRACK_DATABASE_PATH nor in the current directory, tried:\n\r" + tdb_track.string() + "\n\r" + other_track.string());
     }
 
     if (!std::filesystem::exists(actual_track)) {
@@ -31,7 +31,7 @@ std::string validate_track_name_or_file(const std::string& track_name_or_file) {
 
 std::unordered_map<ConeColor, Eigen::MatrixX2d> load_cones(const std::string& track_name_or_file) {
     // if the file is a CSV file, load it directly
-    rapidcsv::Document cones(validate_track_name_or_file(track_name_or_file));
+    rapidcsv::Document cones(validate_track_name_or_file(track_name_or_file, "_cones.csv"));
     // get the positions of the cones in columns X and Y and the corresponding type in column cone_type
     std::vector<double> cones_x = cones.GetColumn<double>("X");
     std::vector<double> cones_y = cones.GetColumn<double>("Y");
@@ -75,7 +75,7 @@ void load_center_line(
         const std::string& track_name_or_file,
         Eigen::MatrixX2d& center_line,
         Eigen::MatrixX2d& track_widths) {
-    rapidcsv::Document center_line_csv(validate_track_name_or_file(track_name_or_file));
+    rapidcsv::Document center_line_csv(validate_track_name_or_file(track_name_or_file, "_center_line.csv"));
     size_t row_count = center_line_csv.GetRowCount();
     center_line.resize(row_count, 2);
     track_widths.resize(row_count, 2);

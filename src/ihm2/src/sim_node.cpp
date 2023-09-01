@@ -5,13 +5,17 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "eigen3/Eigen/Eigen"
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/quaternion.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "geometry_msgs/msg/vector3.hpp"
+#include "ihm2/common/cone_color.hpp"
 #include "ihm2/common/marker_color.hpp"
+#include "ihm2/common/track_database.hpp"
 #include "ihm2/external/icecream.hpp"
 #include "ihm2/msg/controls.hpp"
 #include "ihm2/srv/string.hpp"
@@ -23,9 +27,11 @@
 #include "std_srvs/srv/empty.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "tf2_ros/transform_broadcaster.h"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 #include <fstream>
+#include <unordered_map>
 
 #define NX IHM2_KIN4_NX
 #define NU IHM2_KIN4_NU
@@ -51,7 +57,7 @@ visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi) {
     marker.mesh_resource = "https://github.com/tudoroancea/ihm2/releases/download/lego-lrt4/lego-lrt4.stl";
     marker.pose.position.x = X;
     marker.pose.position.y = Y;
-    marker.pose.position.z = 0.225;
+    marker.pose.position.z = 0.0225;
     marker.pose.orientation = rpy_to_quaternion(0.0, 0.0, M_PI_2 + phi);
     marker.scale.x = 0.03;
     marker.scale.y = 0.03;
@@ -63,7 +69,7 @@ visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi) {
 visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y, std::string color, bool small, bool mesh = true) {
     visualization_msgs::msg::Marker marker;
     marker.header.frame_id = "world";
-    marker.ns = "cones";
+    marker.ns = color + "_cones";
     marker.id = id;
     marker.action = visualization_msgs::msg::Marker::MODIFY;
     if (mesh) {
@@ -72,7 +78,9 @@ visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y,
         marker.scale.x = 0.001;
         marker.scale.y = 0.001;
         marker.scale.z = 0.001;
-        marker.pose.orientation = rpy_to_quaternion(0.0, M_PI / 2, 0.0);
+        marker.pose.position.x = X;
+        marker.pose.position.y = Y;
+        marker.pose.orientation = rpy_to_quaternion(-M_PI_2, 0.0, 0.0);
         if (small) {
             marker.scale.x *= 325 / 228;
             marker.scale.y *= 325 / 228;
@@ -106,6 +114,7 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub;
     rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
+    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
     // rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
     // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr last_lap_time_pub;
     // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr best_lap_time_pub;
@@ -113,9 +122,10 @@ private:
     rclcpp::TimerBase::SharedPtr sim_timer;
     // rclcpp::Time sim_start_time;
     ihm2::msg::Controls controls_msg, controls_target_msg;
-    visualization_msgs::msg::MarkerArray cones_marker;
+    visualization_msgs::msg::MarkerArray cones_marker_array;
     geometry_msgs::msg::PoseStamped pose_msg;
     geometry_msgs::msg::TwistStamped vel_msg;
+    geometry_msgs::msg::TransformStamped transform;
 
     double* x;
     double* u;
@@ -126,9 +136,7 @@ private:
     void* acados_sim_dims;
 
     void controls_callback(const ihm2::msg::Controls::SharedPtr msg) {
-        RCLCPP_INFO(this->get_logger(), "controls_callback");
         if (!this->get_parameter("manual_control").as_bool()) {
-            RCLCPP_INFO(this->get_logger(), "controls_callback");
             u[0] = clip(
                     msg->throttle,
                     this->get_parameter("T_min").as_double(),
@@ -141,9 +149,7 @@ private:
     }
 
     void alternative_controls_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-        RCLCPP_INFO(this->get_logger(), "alternative_controls_callback");
         if (this->get_parameter("manual_control").as_bool()) {
-            RCLCPP_INFO(this->get_logger(), "alternative_controls_callback");
             u[0] = clip(
                     msg->linear.x,
                     this->get_parameter("T_min").as_double(),
@@ -156,7 +162,7 @@ private:
     }
 
     void publish_cones_srv_cb([[maybe_unused]] const std_srvs::srv::Empty::Request::SharedPtr request, [[maybe_unused]] std_srvs::srv::Empty::Response::SharedPtr response) {
-        this->viz_pub->publish(cones_marker);
+        this->viz_pub->publish(cones_marker_array);
     }
 
     void reset_srv_cb([[maybe_unused]] const std_srvs::srv::Empty::Request::SharedPtr request, [[maybe_unused]] std_srvs::srv::Empty::Response::SharedPtr response) {
@@ -175,7 +181,6 @@ private:
     }
 
     void sim_timer_cb() {
-        RCLCPP_INFO(this->get_logger(), "sim_timer_cb");
         // simulate one step
         // - set the controls
         // - solve the simulation
@@ -207,6 +212,14 @@ private:
         pose_msg.pose.orientation = rpy_to_quaternion(0.0, 0.0, x[2]);
         pose_pub->publish(pose_msg);
 
+        transform.header.stamp = this->now();
+        transform.header.frame_id = "world";
+        transform.child_frame_id = "car";
+        transform.transform.translation.x = x[0];
+        transform.transform.translation.y = x[1];
+        transform.transform.rotation = rpy_to_quaternion(0.0, 0.0, x[2]);
+        tf_broadcaster->sendTransform(transform);
+
         vel_msg.header.stamp = this->now();
         vel_msg.header.frame_id = "car";
         vel_msg.twist.linear.x = x[3];
@@ -233,12 +246,12 @@ public:
         // - delta_max: the maximum steering angle
         // - delta_min: the minimum steering angle
         // - manual_control: if true, the car can be controlled by the user
-        auto track_name_or_file = declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
-        declare_parameter<double>("T_max", 2000.0);
-        declare_parameter<double>("T_min", -2000.0);
-        declare_parameter<double>("delta_max", 0.5);
-        declare_parameter<double>("delta_min", -0.5);
-        declare_parameter<bool>("manual_control", true);
+        this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
+        this->declare_parameter<double>("T_max", 2000.0);
+        this->declare_parameter<double>("T_min", -2000.0);
+        this->declare_parameter<double>("delta_max", 0.5);
+        this->declare_parameter<double>("delta_min", -0.5);
+        this->declare_parameter<bool>("manual_control", true);
 
         // initialize x and u with zeros
         x = (double*) malloc(sizeof(double) * NX);
@@ -270,6 +283,7 @@ public:
         this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("/ihm2/pose", 10);
         this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/velocity", 10);
         this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/controls", 10);
+        this->tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);
 
         // subscribers
         this->controls_sub = this->create_subscription<ihm2::msg::Controls>(
@@ -310,8 +324,25 @@ public:
                         std::placeholders::_1,
                         std::placeholders::_2));
 
+        // load cones from track file and create the markers for the cones
+        std::unordered_map<ConeColor, Eigen::MatrixX2d> cones_map = load_cones(this->get_parameter("track_name_or_file").as_string());
+        cones_marker_array.markers.clear();
+        for (auto& [color, cones] : cones_map) {
+            for (int i = 0; i < cones.rows(); i++) {
+                cones_marker_array.markers.push_back(
+                        get_cone_marker(
+                                i,
+                                cones(i, 0),
+                                cones(i, 1),
+                                (color == ConeColor::BLUE || color == ConeColor::YELLOW) ? to_string(color) : "orange",
+                                color != ConeColor::BIG_ORANGE,
+                                true));
+            }
+        }
+
+        // find simulation time step from the JSON config file generated by acados
+        double sim_dt(0.01);
 #ifdef SIM_JSON_PATH
-        // read json file with nlohmann_json in ["solver_options"]["Tsim"]
         std::string sim_json_path = SIM_JSON_PATH;
         std::ifstream sim_json_file(sim_json_path);
         if (!sim_json_file.is_open()) {
@@ -319,11 +350,10 @@ public:
         }
         nlohmann::json sim_json;
         sim_json_file >> sim_json;
-        double sim_dt = sim_json["solver_options"]["Tsim"];
+        sim_dt = sim_json["solver_options"]["Tsim"];
 #else
         throw std::runtime_error("SIM_JSON_PATH not defined");
 #endif
-
         // create a timer for the simulation loop (one simulation step and publishing the car mesh)
         this->sim_timer = this->create_wall_timer(
                 std::chrono::duration<double>(sim_dt),

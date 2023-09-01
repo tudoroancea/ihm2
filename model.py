@@ -1,7 +1,6 @@
 # Copyright (c) 2023. Tudor Oancea
 from casadi import *
 from acados_template import *
-from constants import *
 import scipy.linalg
 from icecream import ic
 from time import perf_counter
@@ -13,14 +12,56 @@ __all__ = [
 ]
 
 
+## Race car parameters
+g = 9.81
+m = 190.0
+I_z = 110.0
+l_R = 1.22
+l_F = 1.22
+L = 3.0
+W = 1.5
+C_m0 = 8000.0 / 1600.0
+C_m1 = 43.0 / 1600.0
+C_r0 = 180.0
+C_r2 = 0.7
+B = 10.0
+C = 1.38
+D = 1.609
+t_T = 1e-3  # time constant for throttle actuator
+t_delta = 0.02  # time constant for steering actuator
+
+# model bounds
+v_min = 0.0
+v_max = 31.0
+alpha_min = -np.pi / 2
+alpha_max = np.pi / 2
+n_min = -1.5
+n_max = 1.5
+T_min = -1600.0
+T_max = 1600.0
+delta_min = -0.5
+delta_max = 0.5
+T_dot_min = -1e6
+T_dot_max = 1e6
+delta_dot_min = -2.0
+delta_dot_max = 2.0
+a_lat_min = -5.0
+a_lat_max = 5.0
+
+
 def gen_model(
-    id: str, kappa_ref: Function = None, right_width: Function = None, left_width: Function = None
+    id: str,
+    kappa_ref: Function = None,
+    right_width: Function = None,
+    left_width: Function = None,
 ) -> tuple[AcadosModel, Function]:
     assert id in {"kin4", "fkin4", "dyn6", "fdyn6"}
     is_frenet = id[0] == "f"
     is_dynamic = id[-1] == 6
     if is_frenet:
-        assert kappa_ref is not None and right_width is not None and left_width is not None
+        assert (
+            kappa_ref is not None and right_width is not None and left_width is not None
+        )
 
     # set up states & controls
     x = []
@@ -53,7 +94,7 @@ def gen_model(
 
     # longitudinal dynamics
     if is_dynamic:
-        F_motor = (C_m0 - C_m1 * v_x) * T 
+        F_motor = (C_m0 - C_m1 * v_x) * T
         F_drag = -(C_r0 + C_r2 * v_x * v_x) * tanh(1000 * v_x)
     else:
         F_motor = (C_m0 - C_m1 * v) * T
@@ -77,7 +118,6 @@ def gen_model(
             beta
         ) / l_R
         a_long = (F_Rx * cos(beta) + F_Fx * cos(delta - beta)) / m
-
 
     # Define model
     model = AcadosModel()
@@ -165,6 +205,8 @@ def gen_model(
 def get_ocp_solver(
     model: AcadosModel,
     opts: AcadosOcpOptions,
+    Nf: int,
+    dt: float,
     Q: np.ndarray,
     R: np.ndarray,
     Qe: np.ndarray,
@@ -189,6 +231,8 @@ def get_ocp_solver(
     ny_e = nx
     nsh = nh
     nsh_e = nh_e
+    nsbx = 2
+    nsbx_e = 2
     ns = nsh + nsbx
     ns_e = nsh_e + nsbx_e
 
@@ -355,6 +399,8 @@ def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
 
     # generate ocp solver
     # for fkin4: x = (s, n, psi, v, T, delta), u = (u_T, u_delta)
+    Nf = 50  # number of discretization steps
+    dt = 0.02  # sampling time
     Q = np.diag([1e-1, 5e-7, 5e-7, 5e-7, 5e-2, 2.5e-2])
     R = np.diag([5e-1, 1e-1])
     Qe = np.diag([1e-1, 2e-10, 2e-10, 2e-10, 1e-4, 4e-5])
@@ -369,7 +415,15 @@ def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
     ocp_solver_opts.sim_method_num_steps = 1
     t0 = perf_counter()
     ocp_solver = get_ocp_solver(
-        model, ocp_solver_opts, Q, R, Qe, "src/ihm2/ihm2_ocp_gen_code", cmake=False
+        model,
+        ocp_solver_opts,
+        Nf,
+        dt,
+        Q,
+        R,
+        Qe,
+        "src/ihm2/ihm2_ocp_gen_code",
+        cmake=False,
     )
     t1 = perf_counter()
     print(f"OCP solver generation time: {t1 - t0:.3f} s")

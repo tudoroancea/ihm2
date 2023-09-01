@@ -49,7 +49,7 @@ geometry_msgs::msg::Quaternion rpy_to_quaternion(double roll, double pitch, doub
     return tf2::toMsg(q);
 }
 
-visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi) {
+visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi, bool mesh = true) {
     visualization_msgs::msg::Marker marker;
     marker.header.frame_id = "world";
     marker.ns = "car";
@@ -82,10 +82,10 @@ visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y,
         marker.pose.position.x = X;
         marker.pose.position.y = Y;
         marker.pose.orientation = rpy_to_quaternion(-M_PI_2, 0.0, 0.0);
-        if (small) {
-            marker.scale.x *= 325 / 228;
-            marker.scale.y *= 325 / 228;
-            marker.scale.z *= 325 / 228;
+        if (!small) {
+            marker.scale.z *= (285.0 / 228.0);
+            marker.scale.x *= (285.0 / 228.0);
+            marker.scale.y *= (505.0 / 325.0);
         }
     } else {
         marker.type = visualization_msgs::msg::Marker::ARROW;
@@ -160,6 +160,7 @@ private:
                     msg->angular.z,
                     this->get_parameter("delta_min").as_double(),
                     this->get_parameter("delta_max").as_double());
+            RCLCPP_INFO(this->get_logger(), "Alternative controls: %f %f", u[0], u[1]);
         }
     }
 
@@ -190,26 +191,19 @@ private:
     }
 
     void sim_timer_cb() {
-        // simulate one step
-        // - set the controls
-        // - solve the simulation
-        // - publish the car pose
-        // - publish the car velocity
-        // - publish the car mesh
-
-        // set inputs
+        // set sim solver inputs
         sim_in_set(acados_sim_config, acados_sim_dims,
                    acados_sim_in, "x", x);
         sim_in_set(acados_sim_config, acados_sim_dims,
                    acados_sim_in, "u", u);
 
-        // solve
+        // call sim solver
         int status = ihm2_kin4_acados_sim_solve(acados_sim_capsule);
         if (status != ACADOS_SUCCESS) {
             printf("acados_solve() failed with status %d.\n", status);
         }
 
-        // get outputs
+        // get sim solver outputs
         sim_out_get(acados_sim_config, acados_sim_dims,
                     acados_sim_out, "x", x);
 
@@ -232,6 +226,10 @@ private:
         vel_msg.header.stamp = this->now();
         vel_msg.header.frame_id = "car";
         vel_msg.twist.linear.x = x[3];
+        if (NX > 6) {
+            vel_msg.twist.linear.y = x[4];
+            vel_msg.twist.angular.z = x[5];
+        }
         vel_pub->publish(vel_msg);
 
         controls_msg.header.stamp = this->now();
@@ -241,7 +239,7 @@ private:
         controls_pub->publish(controls_msg);
 
         visualization_msgs::msg::MarkerArray markers_msg;
-        markers_msg.markers.push_back(get_car_marker(x[0], x[1], x[2]));
+        markers_msg.markers.push_back(get_car_marker(x[0], x[1], x[2], this->get_parameter("use_meshes").as_bool()));
         viz_pub->publish(markers_msg);
     }
 
@@ -263,7 +261,7 @@ private:
                                 cones(i, 1),
                                 is_orange(color) ? "orange" : to_string(color),
                                 color != ConeColor::BIG_ORANGE,
-                                true));
+                                this->get_parameter("use_meshes").as_bool()));
             }
         }
         RCLCPP_INFO(this->get_logger(), "Loaded %lu cones from %s", cones_marker_array.markers.size(), track_name_or_file.c_str());
@@ -292,11 +290,12 @@ public:
         // - delta_min: the minimum steering angle
         // - manual_control: if true, the car can be controlled by the user
         this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
-        this->declare_parameter<double>("T_max", 2000.0);
-        this->declare_parameter<double>("T_min", -2000.0);
+        this->declare_parameter<double>("T_max", 1600.0);
+        this->declare_parameter<double>("T_min", -1600.0);
         this->declare_parameter<double>("delta_max", 0.5);
         this->declare_parameter<double>("delta_min", -0.5);
         this->declare_parameter<bool>("manual_control", true);
+        this->declare_parameter<bool>("use_meshes", true);
 
         this->callback_handle = this->add_on_set_parameters_callback(
                 std::bind(&SimNode::set_param_cb, this, std::placeholders::_1));
@@ -304,13 +303,7 @@ public:
         // initialize x and u with zeros
         x = (double*) malloc(sizeof(double) * NX);
         u = (double*) malloc(sizeof(double) * NU);
-        for (int i = 0; i < NX; i++) {
-            x[i] = 0.0;
-        }
-        for (int i = 0; i < NU; i++) {
-            u[i] = 0.0;
-        }
-        x[2] = M_PI_2;
+        this->reset_srv_cb(nullptr, nullptr);
 
         // load acados sim solver
         // check if the sim solver was generated for the track in question

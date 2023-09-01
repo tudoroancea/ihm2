@@ -30,7 +30,8 @@
         "string": "cpp",
         "print.h": "c",
         "__node_handle": "cpp",
-        "functional": "cpp"
+        "functional": "cpp",
+        "ranges": "cpp"
     },
     "[cpp]": {
         "editor.wordBasedSuggestions": false,

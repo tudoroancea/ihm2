@@ -1,6 +1,7 @@
 // Copyright (c) 2023. Tudor Oancea
 #include "acados/utils/math.h"
 #include "acados_c/sim_interface.h"
+#include "acados_sim_solver_ihm2_dyn6.h"
 #include "acados_sim_solver_ihm2_kin4.h"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -34,10 +35,8 @@
 #include <fstream>
 #include <unordered_map>
 
-#define NX IHM2_KIN4_NX
-#define NU IHM2_KIN4_NU
-
 using namespace std;
+
 
 double clip(double n, double lower, double upper) {
     return std::max(lower, std::min(n, upper));
@@ -49,7 +48,7 @@ geometry_msgs::msg::Quaternion rpy_to_quaternion(double roll, double pitch, doub
     return tf2::toMsg(q);
 }
 
-visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi, bool mesh = true) {
+visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi, [[maybe_unused]] bool mesh = true) {
     visualization_msgs::msg::Marker marker;
     marker.header.frame_id = "world";
     marker.ns = "car";
@@ -123,7 +122,6 @@ private:
 
     rclcpp::TimerBase::SharedPtr sim_timer;
     // rclcpp::Time sim_start_time;
-    ihm2::msg::Controls controls_msg, controls_target_msg;
     visualization_msgs::msg::MarkerArray cones_marker_array;
     geometry_msgs::msg::PoseStamped pose_msg;
     geometry_msgs::msg::TwistStamped vel_msg;
@@ -131,7 +129,10 @@ private:
 
     double* x;
     double* u;
-    ihm2_kin4_sim_solver_capsule* acados_sim_capsule;
+    size_t nx, nu;
+    std::string model;
+
+    void* acados_sim_capsule;
     sim_config* acados_sim_config;
     sim_in* acados_sim_in;
     sim_out* acados_sim_out;
@@ -160,7 +161,6 @@ private:
                     msg->angular.z,
                     this->get_parameter("delta_min").as_double(),
                     this->get_parameter("delta_max").as_double());
-            RCLCPP_INFO(this->get_logger(), "Alternative controls: %f %f", u[0], u[1]);
         }
     }
 
@@ -174,11 +174,11 @@ private:
         // - reset the lap time
         // - reset the simulation time
         // - reset the acados sim solver
-        for (int i = 0; i < NX; i++) {
+        for (size_t i = 0; i < nx; i++) {
             x[i] = 0.0;
         }
         x[2] = M_PI_2;
-        for (int i = 0; i < NU; i++) {
+        for (size_t i = 0; i < nu; i++) {
             u[i] = 0.0;
         }
     }
@@ -193,54 +193,55 @@ private:
     void sim_timer_cb() {
         // set sim solver inputs
         sim_in_set(acados_sim_config, acados_sim_dims,
-                   acados_sim_in, "x", x);
+                   acados_sim_in, "x", this->x);
         sim_in_set(acados_sim_config, acados_sim_dims,
-                   acados_sim_in, "u", u);
+                   acados_sim_in, "u", this->u);
 
         // call sim solver
-        int status = ihm2_kin4_acados_sim_solve(acados_sim_capsule);
+        int status = (model == "kin4") ? ihm2_kin4_acados_sim_solve((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_solve((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         if (status != ACADOS_SUCCESS) {
             printf("acados_solve() failed with status %d.\n", status);
         }
 
         // get sim solver outputs
         sim_out_get(acados_sim_config, acados_sim_dims,
-                    acados_sim_out, "x", x);
+                    acados_sim_out, "x", this->x);
 
         // override the pose and velocity and controls with the simulation output
-        pose_msg.header.stamp = this->now();
-        pose_msg.header.frame_id = "world";
-        pose_msg.pose.position.x = x[0];
-        pose_msg.pose.position.y = x[1];
-        pose_msg.pose.orientation = rpy_to_quaternion(0.0, 0.0, x[2]);
-        pose_pub->publish(pose_msg);
+        this->pose_msg.header.stamp = this->now();
+        this->pose_msg.header.frame_id = "world";
+        this->pose_msg.pose.position.x = x[0];
+        this->pose_msg.pose.position.y = x[1];
+        this->pose_msg.pose.orientation = rpy_to_quaternion(0.0, 0.0, x[2]);
+        this->pose_pub->publish(this->pose_msg);
 
-        transform.header.stamp = this->now();
-        transform.header.frame_id = "world";
-        transform.child_frame_id = "car";
-        transform.transform.translation.x = x[0];
-        transform.transform.translation.y = x[1];
-        transform.transform.rotation = rpy_to_quaternion(0.0, 0.0, x[2]);
-        tf_broadcaster->sendTransform(transform);
+        this->transform.header.stamp = this->now();
+        this->transform.header.frame_id = "world";
+        this->transform.child_frame_id = "car";
+        this->transform.transform.translation.x = x[0];
+        this->transform.transform.translation.y = x[1];
+        this->transform.transform.rotation = rpy_to_quaternion(0.0, 0.0, x[2]);
+        this->tf_broadcaster->sendTransform(this->transform);
 
-        vel_msg.header.stamp = this->now();
-        vel_msg.header.frame_id = "car";
-        vel_msg.twist.linear.x = x[3];
-        if (NX > 6) {
-            vel_msg.twist.linear.y = x[4];
-            vel_msg.twist.angular.z = x[5];
+        this->vel_msg.header.stamp = this->now();
+        this->vel_msg.header.frame_id = "car";
+        this->vel_msg.twist.linear.x = x[3];
+        if (nx > 6) {
+            this->vel_msg.twist.linear.y = x[4];
+            this->vel_msg.twist.angular.z = x[5];
         }
-        vel_pub->publish(vel_msg);
+        this->vel_pub->publish(this->vel_msg);
 
+        ihm2::msg::Controls controls_msg;
         controls_msg.header.stamp = this->now();
         controls_msg.header.frame_id = "car";
-        controls_msg.throttle = x[NX - 2];
-        controls_msg.steering = x[NX - 1];
-        controls_pub->publish(controls_msg);
+        controls_msg.throttle = x[nx - 2];
+        controls_msg.steering = x[nx - 1];
+        this->controls_pub->publish(controls_msg);
 
         visualization_msgs::msg::MarkerArray markers_msg;
         markers_msg.markers.push_back(get_car_marker(x[0], x[1], x[2], this->get_parameter("use_meshes").as_bool()));
-        viz_pub->publish(markers_msg);
+        this->viz_pub->publish(markers_msg);
     }
 
     void create_cones_markers(const std::string& track_name_or_file) {
@@ -268,13 +269,17 @@ private:
     }
 
     rcl_interfaces::msg::SetParametersResult set_param_cb(const std::vector<rclcpp::Parameter>& parameters) {
+        rcl_interfaces::msg::SetParametersResult result;
         for (const auto& parameter : parameters) {
             if (parameter.get_name() == "track_name_or_file") {
                 this->create_cones_markers(parameter.as_string());
                 this->viz_pub->publish(this->cones_marker_array);
+            } else if (parameter.get_name() == "model") {
+                result.successful = false;
+                result.reason = "Cannot change model at runtime";
+                return result;
             }
         }
-        rcl_interfaces::msg::SetParametersResult result;
         result.successful = true;
         return result;
     }
@@ -296,28 +301,36 @@ public:
         this->declare_parameter<double>("delta_min", -0.5);
         this->declare_parameter<bool>("manual_control", true);
         this->declare_parameter<bool>("use_meshes", true);
+        model = this->declare_parameter<std::string>("model", "kin4");
+        // check that model is either kin4 or dyn6
+        if (model != "kin4" && model != "dyn6") {
+            throw std::runtime_error("model must be either kin4 or dyn6");
+        }
 
         this->callback_handle = this->add_on_set_parameters_callback(
                 std::bind(&SimNode::set_param_cb, this, std::placeholders::_1));
 
         // initialize x and u with zeros
-        x = (double*) malloc(sizeof(double) * NX);
-        u = (double*) malloc(sizeof(double) * NU);
+        nx = (model == "kin4") ? IHM2_KIN4_NX : IHM2_DYN6_NX;
+        nu = (model == "kin4") ? IHM2_KIN4_NU : IHM2_DYN6_NU;
+        x = (double*) malloc(sizeof(double) * nx);
+        u = (double*) malloc(sizeof(double) * nu);
         this->reset_srv_cb(nullptr, nullptr);
+        RCLCPP_INFO(this->get_logger(), "Initialized x and u with sizes %zu and %zu", nx, nu);
 
         // load acados sim solver
         // check if the sim solver was generated for the track in question
-        acados_sim_capsule = ihm2_kin4_acados_sim_solver_create_capsule();
-        int status = ihm2_kin4_acados_sim_create(acados_sim_capsule);
+        acados_sim_capsule = (model == "kin4") ? (void*) ihm2_kin4_acados_sim_solver_create_capsule() : (void*) ihm2_dyn6_acados_sim_solver_create_capsule();
+        int status = (model == "kin4") ? ihm2_kin4_acados_sim_create((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_create((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         if (status) {
             printf("acados_create() returned status %d. Exiting.\n", status);
             rclcpp::shutdown();
             exit(1);
         }
-        acados_sim_config = ihm2_kin4_acados_get_sim_config(acados_sim_capsule);
-        acados_sim_in = ihm2_kin4_acados_get_sim_in(acados_sim_capsule);
-        acados_sim_out = ihm2_kin4_acados_get_sim_out(acados_sim_capsule);
-        acados_sim_dims = ihm2_kin4_acados_get_sim_dims(acados_sim_capsule);
+        acados_sim_config = (model == "kin4") ? ihm2_kin4_acados_get_sim_config((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_get_sim_config((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
+        acados_sim_in = (model == "kin4") ? ihm2_kin4_acados_get_sim_in((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_get_sim_in((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
+        acados_sim_out = (model == "kin4") ? ihm2_kin4_acados_get_sim_out((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_get_sim_out((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
+        acados_sim_dims = (model == "kin4") ? ihm2_kin4_acados_get_sim_dims((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_get_sim_dims((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
 
         // publishers
         this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz", 10);
@@ -391,11 +404,11 @@ public:
     }
 
     ~SimNode() {
-        int status = ihm2_kin4_acados_sim_free(acados_sim_capsule);
+        int status = (model == "kin4") ? ihm2_kin4_acados_sim_free((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_free((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         if (status) {
-            printf("ihm2_kin4_acados_sim_free() returned status %d. \n", status);
+            printf("ihm2_%s_acados_sim_free() returned status %d. \n", model.c_str(), status);
         }
-        ihm2_kin4_acados_sim_solver_free_capsule(acados_sim_capsule);
+        (model == "kin4") ? ihm2_kin4_acados_sim_solver_free_capsule((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_solver_free_capsule((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         free(x);
         free(u);
     }

@@ -57,7 +57,7 @@ def gen_model(
 ) -> tuple[AcadosModel, Function]:
     assert id in {"kin4", "fkin4", "dyn6", "fdyn6"}
     is_frenet = id[0] == "f"
-    is_dynamic = id[-1] == 6
+    is_dynamic = id[-1] == "6"
     if is_frenet:
         assert (
             kappa_ref is not None and right_width is not None and left_width is not None
@@ -224,6 +224,7 @@ def get_ocp_solver(
     ocp.model = model
     ocp.dims.N = Nf
     nx = model.x.size()[0]
+    ic(nx)
     nu = model.u.size()[0]
     nh = model.con_h_expr.size()[0]
     nh_e = model.con_h_expr_e.size()[0]
@@ -429,7 +430,6 @@ def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
     print(f"OCP solver generation time: {t1 - t0:.3f} s")
 
     # generate regular model
-    model = gen_model("kin4")
 
     # generate sim solver
     sim_solver_opts = AcadosSimOpts()
@@ -439,10 +439,16 @@ def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
     sim_solver_opts.integrator_type = "IRK"
     sim_solver_opts.collocation_type = "GAUSS_RADAU_IIA"
     t0 = perf_counter()
-    sim_solver = get_sim_solver(
-        model,
+    get_sim_solver(
+        gen_model("kin4"),
         sim_solver_opts,
-        "src/ihm2/ihm2_sim_gen_code",
+        "src/ihm2/ihm2_kin4_sim_gen_code",
+        cmake=False,
+    )
+    get_sim_solver(
+        gen_model("dyn6"),
+        sim_solver_opts,
+        "src/ihm2/ihm2_dyn6_sim_gen_code",
         cmake=False,
     )
     t1 = perf_counter()

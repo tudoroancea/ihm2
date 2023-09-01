@@ -5,7 +5,7 @@ project(ihm2)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_STANDARD 11)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wextra -Wpedantic -pthread -O2 -std=c++17")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wextra -Wpedantic -pthread -O2 -std=c++17 -Wno-deprecated-declarations")
 set(CMAKE_BUILD_TYPE Debug)
 
 # find dependencies
@@ -72,20 +72,47 @@ ament_auto_add_library(ihm2_common SHARED
 )
 target_link_libraries(ihm2_common Eigen3::Eigen nlohmann_json::nlohmann_json)
 
+# # generate sim node
+# ament_auto_add_executable(sim_node src/sim_node.cpp)
+# target_include_directories(sim_node PUBLIC
+# "${ACADOS_PATH}/include"
+# "${ACADOS_PATH}/include/acados"
+# "ihm2_kin4_sim_gen_code"
+# "ihm2_kin4_sim_gen_code/ihm2_kin4_model"
+# "ihm2_dyn6_sim_gen_code"
+# "ihm2_dyn6_sim_gen_code/ihm2_dyn6_model"
+# ) # install everything in the ihm2 package
+# target_link_libraries(sim_node
+# "${cpp_typesupport_target}" # for custom message and service types defined in this package
+# ${ACADOS_LIB} # acados library
+# ${IHM2_KIN4_SIM_LIB} # acados sim solver generated code
+# ${IHM2_DYN6_SIM_LIB} # acados sim solver generated code
+# ihm2_common # ihm2 common library
+# )
 # generate sim node
-find_library(IHM2_SIM_LIB acados_sim_solver_ihm2_kin4 PATHS ihm2_sim_gen_code)
-message(STATUS "IHM2_SIM_LIB: ${IHM2_SIM_LIB}")
+find_library(IHM2_KIN4_SIM_LIB acados_sim_solver_ihm2_kin4 PATHS ihm2_kin4_sim_gen_code)
+find_library(IHM2_DYN6_SIM_LIB acados_sim_solver_ihm2_dyn6 PATHS ihm2_dyn6_sim_gen_code)
+message(STATUS "IHM2_KIN4_SIM_LIB: ${IHM2_KIN4_SIM_LIB}")
+message(STATUS "IHM2_DYN6_SIM_LIB: ${IHM2_DYN6_SIM_LIB}")
+
+# find_library(IHM2_SIM_LIB acados_sim_solver_ihm2_kin4 PATHS ihm2_kin4_sim_gen_code)
+# message(STATUS "IHM2_SIM_LIB: ${IHM2_SIM_LIB}")
 ament_auto_add_executable(sim_node src/sim_node.cpp)
 target_link_libraries(sim_node
   "${cpp_typesupport_target}" # for custom message and service types defined in this package
   ${ACADOS_LIB} # acados library
-  ${IHM2_SIM_LIB} # acados sim solver generated code
+
+  # ${IHM2_SIM_LIB} # acados sim solver generated code
+  ${IHM2_KIN4_SIM_LIB} # acados sim solver generated code
+  ${IHM2_DYN6_SIM_LIB} # acados sim solver generated code
   ihm2_common # ihm2 common library
 )
 target_include_directories(sim_node PUBLIC
   "${ACADOS_PATH}/include"
   "${ACADOS_PATH}/include/acados"
-  "ihm2_sim_gen_code"
-  "ihm2_sim_gen_code/ihm2_kin4_model"
+  "ihm2_kin4_sim_gen_code"
+  "ihm2_kin4_sim_gen_code/ihm2_kin4_model"
+  "ihm2_dyn6_sim_gen_code"
+  "ihm2_dyn6_sim_gen_code/ihm2_dyn6_model"
 ) # install everything in the ihm2 package
 ament_auto_package(INSTALL_TO_SHARE)

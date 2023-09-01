@@ -29,6 +29,7 @@
         "dense": "cpp",
         "string": "cpp",
         "print.h": "c",
-        "__node_handle": "cpp"
+        "__node_handle": "cpp",
+        "functional": "cpp"
     },
 }

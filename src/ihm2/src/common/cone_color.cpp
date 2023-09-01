@@ -2,6 +2,10 @@
 #include "ihm2/common/cone_color.hpp"
 #include <string>
 
+bool is_orange(const ConeColor& c) {
+    return c == ConeColor::BIG_ORANGE || c == ConeColor::SMALL_ORANGE;
+}
+
 ConeColor from_string(const std::string& s) {
     if (s == "blue") {
         return ConeColor::BLUE;

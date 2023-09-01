@@ -10,6 +10,8 @@ enum class ConeColor : char {
     SMALL_ORANGE,
 };
 
+bool is_orange(const ConeColor& c);
+
 ConeColor from_string(const std::string& s);
 
 std::string to_string(const ConeColor& c);

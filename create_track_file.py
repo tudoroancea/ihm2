@@ -11,9 +11,6 @@ def main():
     track_name = "fsds_competition_2"
     track = Track(track_name)
 
-    _, _, _, original_center_normvectors = tph.calc_splines(
-        path=track.center_line, closed=True
-    )
     (
         reference_points,
         _,
@@ -27,7 +24,7 @@ def main():
         _,
     ) = tph.create_raceline(
         refline=track.center_line,
-        normvectors=original_center_normvectors,
+        normvectors=track.center_line,  # since we choose alpha = 0, the actual normvectors don't matter
         alpha=np.zeros(track.center_line.shape[0]),
         stepsize_interp=0.1,
         closed=True,

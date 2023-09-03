@@ -93,20 +93,36 @@ def gen_model(
     xdot = MX.sym("xdot", x.shape)
 
     # longitudinal dynamics
+    M_2_PI = 2 / np.pi
     if is_dynamic:
         F_motor = (C_m0 - C_m1 * v_x) * T
-        F_drag = -(C_r0 + C_r2 * v_x * v_x) * tanh(1000 * v_x)
+        F_drag = -(C_r0 + C_r2 * v_x * v_x) * tanh(1000 * v_x) * M_2_PI
     else:
         F_motor = (C_m0 - C_m1 * v) * T
-        F_drag = -(C_r0 + C_r2 * v * v) * tanh(1000 * v)
+        F_drag = -(C_r0 + C_r2 * v * v) * tanh(1000 * v) * M_2_PI
     F_Rx = 0.5 * F_motor + F_drag
     F_Fx = 0.5 * F_motor
     # lateral dynamics
     if is_dynamic:
         F_Rz = m * g * l_R / (l_R + l_F)
         F_Fz = m * g * l_F / (l_R + l_F)
-        alpha_R = atan2(v_y - l_R * r, v_x)
-        alpha_F = atan2(v_y + l_F * r, v_x) - delta
+        # alpha_R = atan2(v_y - l_R * r, v_x)
+        # alpha_F = atan2(v_y + l_F * r, v_x) - delta
+        alpha_R = (
+            M_2_PI
+            * M_2_PI
+            * tanh(1000 * v_x)
+            * tanh(1000 * v_x)
+            * atan2(v_y - l_R * r, v_x)
+        )
+        alpha_F = (
+            M_2_PI
+            * M_2_PI
+            * tanh(1000 * v_x)
+            * tanh(1000 * v_x)
+            * atan2(v_y + l_F * r, v_x)
+            - delta
+        )
         mu_Ry = D * sin(C * atan(B * alpha_R))
         mu_Fy = D * sin(C * atan(B * alpha_F))
         F_Ry = F_Rz * mu_Ry
@@ -224,7 +240,6 @@ def get_ocp_solver(
     ocp.model = model
     ocp.dims.N = Nf
     nx = model.x.size()[0]
-    ic(nx)
     nu = model.u.size()[0]
     nh = model.con_h_expr.size()[0]
     nh_e = model.con_h_expr_e.size()[0]

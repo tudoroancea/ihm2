@@ -103,6 +103,16 @@ visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y,
     return marker;
 }
 
+class FatalNodeError : public std::runtime_error {
+public:
+    FatalNodeError(const std::string& what) : std::runtime_error(what) {}
+};
+
+class NodeError : public std::runtime_error {
+public:
+    NodeError(const std::string& what) : std::runtime_error(what) {}
+};
+
 class SimNode : public rclcpp::Node {
 private:
     rclcpp::Subscription<ihm2::msg::Controls>::SharedPtr controls_sub;
@@ -200,7 +210,7 @@ private:
         // call sim solver
         int status = (model == "kin4") ? ihm2_kin4_acados_sim_solve((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_solve((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         if (status != ACADOS_SUCCESS) {
-            printf("acados_solve() failed with status %d.\n", status);
+            throw FatalNodeError("acados_solve() failed with status " + std::to_string(status) + ".");
         }
 
         // get sim solver outputs
@@ -304,7 +314,7 @@ public:
         model = this->declare_parameter<std::string>("model", "kin4");
         // check that model is either kin4 or dyn6
         if (model != "kin4" && model != "dyn6") {
-            throw std::runtime_error("model must be either kin4 or dyn6");
+            throw FatalNodeError("model must be either kin4 or dyn6");
         }
 
         this->callback_handle = this->add_on_set_parameters_callback(
@@ -323,9 +333,7 @@ public:
         acados_sim_capsule = (model == "kin4") ? (void*) ihm2_kin4_acados_sim_solver_create_capsule() : (void*) ihm2_dyn6_acados_sim_solver_create_capsule();
         int status = (model == "kin4") ? ihm2_kin4_acados_sim_create((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_create((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         if (status) {
-            printf("acados_create() returned status %d. Exiting.\n", status);
-            rclcpp::shutdown();
-            exit(1);
+            throw FatalNodeError("acados_create() returned status " + std::to_string(status));
         }
         acados_sim_config = (model == "kin4") ? ihm2_kin4_acados_get_sim_config((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_get_sim_config((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         acados_sim_in = (model == "kin4") ? ihm2_kin4_acados_get_sim_in((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_get_sim_in((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
@@ -387,13 +395,13 @@ public:
         std::string sim_json_path = SIM_JSON_PATH;
         std::ifstream sim_json_file(sim_json_path);
         if (!sim_json_file.is_open()) {
-            throw std::runtime_error("Could not open " + sim_json_path);
+            throw FatalNodeError("Could not open " + sim_json_path);
         }
         nlohmann::json sim_json;
         sim_json_file >> sim_json;
         sim_dt = sim_json["solver_options"]["Tsim"];
 #else
-        throw std::runtime_error("SIM_JSON_PATH not defined");
+        throw FatalNodeError("SIM_JSON_PATH not defined");
 #endif
         // create a timer for the simulation loop (one simulation step and publishing the car mesh)
         this->sim_timer = this->create_wall_timer(
@@ -406,7 +414,7 @@ public:
     ~SimNode() {
         int status = (model == "kin4") ? ihm2_kin4_acados_sim_free((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_free((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         if (status) {
-            printf("ihm2_%s_acados_sim_free() returned status %d. \n", model.c_str(), status);
+            throw FatalNodeError("ihm2_" + model + "_acados_sim_free() returned status " + std::to_string(status) + ".");
         }
         (model == "kin4") ? ihm2_kin4_acados_sim_solver_free_capsule((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_solver_free_capsule((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         free(x);
@@ -417,7 +425,13 @@ public:
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<SimNode>();
-    rclcpp::spin(node);
+    try {
+        rclcpp::spin(node);
+    } catch (const FatalNodeError& e) {
+        RCLCPP_FATAL(node->get_logger(), "Caught exception: %s", e.what());
+    } catch (...) {
+        RCLCPP_ERROR(node->get_logger(), "Caught unknown exception");
+    }
     rclcpp::shutdown();
     return 0;
 }

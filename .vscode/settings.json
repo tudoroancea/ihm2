@@ -31,7 +31,8 @@
         "print.h": "c",
         "__node_handle": "cpp",
         "functional": "cpp",
-        "ranges": "cpp"
+        "ranges": "cpp",
+        "eigen": "cpp"
     },
     "[cpp]": {
         "editor.wordBasedSuggestions": false,

@@ -30,6 +30,10 @@ D = 1.609
 t_T = 1e-3  # time constant for throttle actuator
 t_delta = 0.02  # time constant for steering actuator
 
+# derived parameters
+C = l_R / (l_R + l_F)
+Ctilde = 1 / (l_R + l_F)
+
 # model bounds
 v_min = 0.0
 v_max = 31.0
@@ -49,15 +53,21 @@ a_lat_min = -5.0
 a_lat_max = 5.0
 
 
+def smooth_sgn(x: MX) -> MX:
+    return tanh(1000 * x)
+
+
 def gen_model(
     id: str,
     kappa_ref: Function = None,
     right_width: Function = None,
     left_width: Function = None,
 ) -> tuple[AcadosModel, Function]:
-    assert id in {"kin4", "fkin4", "dyn6", "fdyn6"}
+    assert id in {"kin4", "fkin4", "kin6", "fkin6", "dyn6", "fdyn6"}
     is_frenet = id[0] == "f"
-    is_dynamic = id[-1] == "6"
+    base_model = id[-4:]
+    is_dynamic = base_model == "dyn6"
+    dof = int(id[-1])
     if is_frenet:
         assert (
             kappa_ref is not None and right_width is not None and left_width is not None
@@ -75,7 +85,7 @@ def gen_model(
         Y = MX.sym("Y")
         phi = MX.sym("phi")
         x += [X, Y, phi]
-    if is_dynamic:
+    if dof == 6:
         v_x = MX.sym("v_x")
         v_y = MX.sym("v_y")
         r = MX.sym("r")
@@ -93,36 +103,23 @@ def gen_model(
     xdot = MX.sym("xdot", x.shape)
 
     # longitudinal dynamics
-    M_2_PI = 2 / np.pi
     if is_dynamic:
+        v_x_sgn = smooth_sgn(v_x)
         F_motor = (C_m0 - C_m1 * v_x) * T
-        F_drag = -(C_r0 + C_r2 * v_x * v_x) * tanh(1000 * v_x) * M_2_PI
+        F_drag = -(C_r0 + C_r2 * v_x * v_x) * v_x_sgn
     else:
+        v_sgn = smooth_sgn(v)
         F_motor = (C_m0 - C_m1 * v) * T
-        F_drag = -(C_r0 + C_r2 * v * v) * tanh(1000 * v) * M_2_PI
+        F_drag = -(C_r0 + C_r2 * v * v) * v_sgn
     F_Rx = 0.5 * F_motor + F_drag
     F_Fx = 0.5 * F_motor
     # lateral dynamics
     if is_dynamic:
         F_Rz = m * g * l_R / (l_R + l_F)
         F_Fz = m * g * l_F / (l_R + l_F)
-        # alpha_R = atan2(v_y - l_R * r, v_x)
-        # alpha_F = atan2(v_y + l_F * r, v_x) - delta
-        alpha_R = (
-            M_2_PI
-            * M_2_PI
-            * tanh(1000 * v_x)
-            * tanh(1000 * v_x)
-            * atan2(v_y - l_R * r, v_x)
-        )
-        alpha_F = (
-            M_2_PI
-            * M_2_PI
-            * tanh(1000 * v_x)
-            * tanh(1000 * v_x)
-            * atan2(v_y + l_F * r, v_x)
-            - delta
-        )
+        ic(F_Rz, F_Fz)
+        alpha_R = atan2(v_y - l_R * r, 1e-6 + v_x)
+        alpha_F = atan2(v_y + l_F * r, 1e-6 + v_x) - delta
         mu_Ry = D * sin(C * atan(B * alpha_R))
         mu_Fy = D * sin(C * atan(B * alpha_F))
         F_Ry = F_Rz * mu_Ry
@@ -187,6 +184,8 @@ def gen_model(
     model.f_impl_expr = xdot - f_expl
     model.f_expl_expr = f_expl
 
+    ic(x, u, xdot, f_expl)
+
     model.x = x
     model.u = u
     model.name = f"ihm2_{id}"
@@ -209,6 +208,119 @@ def gen_model(
                 ]
                 + ([] if is_dynamic else [a_lat])
             )
+        )
+        model.con_h_expr_e = vertcat(
+            right_track_constraint,
+            left_track_constraint,
+        )
+
+    return model
+
+
+def gen_model_2(
+    id: str,
+    kappa_ref: Function = None,
+    right_width: Function = None,
+    left_width: Function = None,
+) -> tuple[AcadosModel, Function]:
+    assert id in {"kin6", "fkin6"}
+    is_frenet = id[0] == "f"
+    if is_frenet:
+        assert (
+            kappa_ref is not None and right_width is not None and left_width is not None
+        )
+
+    # set up states & controls
+    x = []
+    if is_frenet:
+        s = MX.sym("s")
+        n = MX.sym("n")
+        psi = MX.sym("psi")
+        x += [s, n, psi]
+    else:
+        X = MX.sym("X")
+        Y = MX.sym("Y")
+        phi = MX.sym("phi")
+        x += [X, Y, phi]
+    v_x = MX.sym("v_x")
+    v_y = MX.sym("v_y")
+    r = MX.sym("r")
+    x += [v_x, v_y, r]
+    T = MX.sym("T")
+    delta = MX.sym("delta")
+    x += [T, delta]
+    x = vertcat(*x)
+    u_T = MX.sym("u_T")
+    u_delta = MX.sym("u_delta")
+    u = vertcat(u_T, u_delta)
+    xdot = MX.sym("xdot", x.shape)
+
+    # longitudinal dynamics
+    M_2_PI = 2 / np.pi
+    F_motor = (C_m0 - C_m1 * v_x) * T
+    F_drag = -(C_r0 + C_r2 * v_x * v_x) * tanh(1000 * v_x) * M_2_PI
+    F_Rx = 0.5 * F_motor + F_drag
+    F_Fx = 0.5 * F_motor
+    # lateral dynamics
+    C = l_R / (l_R + l_F)
+    Ctilde = l_F / (l_R + l_F)
+    tandelta = tan(delta)
+    beta = atan(C * tandelta)
+    sinbeta = C * tandelta / sqrt(1 + C * C * tandelta * tandelta)
+    cosbeta = 1 / sqrt(1 + C * C * tandelta * tandelta)
+    # accelerations
+    a_lat = (-F_Rx * sinbeta + F_Fx * sin(delta - beta)) / m + (
+        v_x * v_x + v_y * v_y
+    ) * sinbeta / l_R
+    v_dot = (F_Rx * cosbeta + F_Fx * cos(delta - beta)) / m
+
+    # Define model
+    model = AcadosModel()
+    T_dot = (u_T - T) / t_T
+    delta_dot = (u_delta - delta) / t_delta
+    beta_dot = (
+        delta_dot * C * (1 + tandelta * tandelta) / (1 + C * C * tandelta * tandelta)
+    )
+    f_expl = []
+    if is_frenet:
+        sdot_expr = (v_x * cos(psi) - v_y * sin(psi)) / (1 - kappa_ref(s) * n)
+        f_expl += [
+            sdot_expr,
+            v_x * sin(psi) + v_y * cos(psi),
+            r - kappa_ref(s) * sdot_expr,
+        ]
+    else:
+        f_expl += [
+            v_x * cos(phi) - v_y * sin(phi),
+            v_x * sin(phi) + v_y * cos(phi),
+            r,
+        ]
+    f_expl += [
+        v_dot * cosbeta - beta_dot * v_y,
+        v_dot * sinbeta + beta_dot * v_x,
+        l_R * (v_dot * sinbeta + beta_dot * v_x),
+        T_dot,
+        delta_dot,
+    ]
+    f_expl = vertcat(*f_expl)
+    model.xdot = xdot
+    model.f_impl_expr = xdot - f_expl
+    model.f_expl_expr = f_expl
+
+    model.x = x
+    model.u = u
+    model.name = f"ihm2_{id}"
+
+    # constraints (we don't add constraints for non-frenet models since they won't be used in OCPs)
+    if is_frenet:
+        right_track_constraint = (
+            n - 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - right_width(s)
+        )
+        left_track_constraint = (
+            -n + 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - left_width(s)
+        )
+        model.con_h_expr = vertcat(
+            *([right_track_constraint, left_track_constraint, T_dot, delta_dot, a_lat])
         )
         model.con_h_expr_e = vertcat(
             right_track_constraint,
@@ -299,6 +411,9 @@ def get_ocp_solver(
     ocp.constraints.idxbx = np.array([2, 3, 4, 5])
     ocp.constraints.lbx = np.array([alpha_min, v_min, T_min, delta_min])
     ocp.constraints.ubx = np.array([alpha_max, v_max, T_max, delta_max])
+    ocp.constraints.idxbu = np.array([0, 1])
+    ocp.constraints.lbu = np.array([T_min, delta_min])
+    ocp.constraints.ubu = np.array([T_max, delta_max])
     ocp.constraints.idxsbx = np.array([2, 3])
     ocp.constraints.idxbx_e = np.array([2, 3, 4, 5])
     ocp.constraints.lbx_e = np.array([alpha_min, v_min, T_min, delta_min])
@@ -379,36 +494,14 @@ def get_sim_solver(
 def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
     data = np.loadtxt(csv_file, delimiter=",", skiprows=1)
     s_ref = data[:, 0]
-    X_ref = data[:, 1]
-    Y_ref = data[:, 2]
-    phi_ref = data[:, 3]
     kappa_ref = data[:, 4]
     right_width = data[:, 5]
     left_width = data[:, 6]
-    total_length = s_ref[-1] + np.hypot(X_ref[-1] - X_ref[0], Y_ref[-1] - Y_ref[0])
-
-    # duplicate data before and after the loop to avoid discontinuities
-    s_ref_extended = np.hstack(
-        (
-            s_ref - total_length,
-            s_ref,
-            s_ref + total_length,
-        )
-    )
-    kappa_ref_extended = np.hstack((kappa_ref, kappa_ref, kappa_ref))
-    right_width_extended = np.hstack((right_width, right_width, right_width))
-    left_width_extended = np.hstack((left_width, left_width, left_width))
 
     # create B-spline interpolants for kappa, right_width, left_width
-    kappa_ref_expr = interpolant(
-        "kappa_ref", "bspline", [s_ref_extended], kappa_ref_extended
-    )
-    right_width_expr = interpolant(
-        "right_width", "bspline", [s_ref_extended], right_width_extended
-    )
-    left_width_expr = interpolant(
-        "left_width", "bspline", [s_ref_extended], left_width_extended
-    )
+    kappa_ref_expr = interpolant("kappa_ref", "linear", [s_ref], kappa_ref)
+    right_width_expr = interpolant("right_width", "linear", [s_ref], right_width)
+    left_width_expr = interpolant("left_width", "linear", [s_ref], left_width)
 
     # generate Frenet model for ocp
     model = gen_model("fkin4", kappa_ref_expr, right_width_expr, left_width_expr)

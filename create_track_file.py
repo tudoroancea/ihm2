@@ -1,10 +1,12 @@
 # Copyright (c) 2023. Tudor Oancea
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import trajectory_planning_helpers as tph
+from icecream import ic
 from track_database import Track
 from track_database.utils import plot_cones
-import trajectory_planning_helpers as tph
-from .utils import unwrapToPi
+
+from utils import unwrapToPi
 
 
 def main():
@@ -12,63 +14,45 @@ def main():
     track = Track(track_name)
 
     (
-        reference_points,
+        XY_ref,
         _,
-        reference_coeffs_x,
-        reference_coeffs_y,
+        coeffs_X,
+        coeffs_Y,
         _,
-        reference_new_center_spline_idx,
-        reference_new_center_t_values,
-        reference_new_center_s_values,
+        spline_idx,
+        t_vals,
+        s_ref,
         _,
         _,
     ) = tph.create_raceline(
         refline=track.center_line,
-        normvectors=track.center_line,  # since we choose alpha = 0, the actual normvectors don't matter
+        normvectors=track.center_line,  # since we choose alpha = 0, the actual normvectors don't matter, we just need the correct shape
         alpha=np.zeros(track.center_line.shape[0]),
         stepsize_interp=0.1,
         closed=True,
     )
-    headings, curvatures = tph.calc_head_curv_an(
-        coeffs_x=reference_coeffs_x,
-        coeffs_y=reference_coeffs_y,
-        ind_spls=reference_new_center_spline_idx,
-        t_spls=reference_new_center_t_values,
+    ic(np.hypot(XY_ref[-1, 0] - XY_ref[0, 0], XY_ref[-1, 1] - XY_ref[0, 1]))
+    total_length = s_ref[-1] + np.hypot(
+        XY_ref[-1, 0] - XY_ref[0, 0], XY_ref[-1, 1] - XY_ref[0, 1]
+    )
+    phi_ref, kappa_ref = tph.calc_head_curv_an(
+        coeffs_x=coeffs_X,
+        coeffs_y=coeffs_Y,
+        ind_spls=spline_idx,
+        t_spls=t_vals,
         calc_curv=True,
     )
-    new_widths = tph.interp_track_widths(
-        track.track_widths,
-        reference_new_center_spline_idx,
-        reference_new_center_t_values,
-    )
-    s_ref = reference_new_center_s_values
-    X_ref = reference_points[:, 0]
-    Y_ref = reference_points[:, 1]
-    phi_ref = headings
-    kappa_ref = curvatures
-    np.savetxt(
-        f"data/{track_name}.csv",
-        np.array(
-            (
-                s_ref,
-                X_ref,
-                Y_ref,
-                phi_ref,
-                kappa_ref,
-                new_widths[:, 0],
-                new_widths[:, 1],
-            )
-        ).T,
-        delimiter=",",
-        header="s_ref,X_ref,Y_ref,phi_ref,kappa_ref,right_width,left_width",
-        fmt="%.6f",
+    right_left_widths = tph.interp_track_widths(
+        w_track=track.track_widths,
+        spline_inds=spline_idx,
+        t_values=t_vals,
     )
 
     plt.figure()
-    plt.plot(s_ref, unwrapToPi(headings), label="headings")
+    plt.plot(s_ref, unwrapToPi(phi_ref), label="headings")
     plt.legend()
     plt.figure()
-    plt.plot(s_ref, curvatures, label="curvatures")
+    plt.plot(s_ref, kappa_ref, label="curvatures")
     plt.legend()
 
     plt.figure()
@@ -79,7 +63,7 @@ def main():
         track.small_orange_cones,
         show=False,
     )
-    plt.plot(reference_points[:, 0], reference_points[:, 1], label="reference")
+    plt.plot(XY_ref[:, 0], XY_ref[:, 1], label="reference")
     plt.scatter(
         track.center_line[:, 0],
         track.center_line[:, 1],
@@ -88,6 +72,32 @@ def main():
         marker="x",
         label="center line",
     )
+
+    s_ref = np.hstack((s_ref - total_length, s_ref, s_ref + total_length))
+    XY_ref = np.vstack((XY_ref, XY_ref, XY_ref))
+    phi_ref = np.hstack((phi_ref, phi_ref, phi_ref))
+    kappa_ref = np.hstack((kappa_ref, kappa_ref, kappa_ref))
+    right_left_widths = np.vstack(
+        (right_left_widths, right_left_widths, right_left_widths)
+    )
+    np.savetxt(
+        f"data/{track_name}.csv",
+        np.array(
+            (
+                s_ref,
+                XY_ref[:, 0],
+                XY_ref[:, 1],
+                phi_ref,
+                kappa_ref,
+                right_left_widths[:, 0],
+                right_left_widths[:, 1],
+            )
+        ).T,
+        delimiter=",",
+        header="s_ref,X_ref,Y_ref,phi_ref,kappa_ref,right_width,left_width",
+        fmt="%.6f",
+    )
+
     plt.show()
 
 

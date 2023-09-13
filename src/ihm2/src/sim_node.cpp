@@ -16,6 +16,7 @@
 #include "geometry_msgs/msg/vector3.hpp"
 #include "ihm2/common/cone_color.hpp"
 #include "ihm2/common/marker_color.hpp"
+#include "ihm2/common/math.hpp"
 #include "ihm2/common/track_database.hpp"
 #include "ihm2/external/icecream.hpp"
 #include "ihm2/msg/controls.hpp"
@@ -36,17 +37,6 @@
 #include <unordered_map>
 
 using namespace std;
-
-
-double clip(double n, double lower, double upper) {
-    return std::max(lower, std::min(n, upper));
-}
-
-geometry_msgs::msg::Quaternion rpy_to_quaternion(double roll, double pitch, double yaw) {
-    tf2::Quaternion q;
-    q.setRPY(roll, pitch, yaw);
-    return tf2::toMsg(q);
-}
 
 visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi, [[maybe_unused]] bool mesh = true) {
     visualization_msgs::msg::Marker marker;
@@ -113,7 +103,7 @@ public:
     NodeError(const std::string& what) : std::runtime_error(what) {}
 };
 
-class SimNode : public rclcpp::Node {
+class ControlNode : public rclcpp::Node {
 private:
     rclcpp::Subscription<ihm2::msg::Controls>::SharedPtr controls_sub;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr alternative_controls_sub;
@@ -125,7 +115,7 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub;
     rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
-    // rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
+    rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
     // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr last_lap_time_pub;
     // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr best_lap_time_pub;
     OnSetParametersCallbackHandle::SharedPtr callback_handle;
@@ -191,6 +181,7 @@ private:
         for (size_t i = 0; i < nu; i++) {
             u[i] = 0.0;
         }
+        RCLCPP_INFO(this->get_logger(), "Reset x and u");
     }
 
     void load_map_srv_cb([[maybe_unused]] const ihm2::srv::String::Request::SharedPtr request, [[maybe_unused]] ihm2::srv::String::Response::SharedPtr response) {
@@ -201,21 +192,34 @@ private:
     }
 
     void sim_timer_cb() {
+        RCLCPP_INFO(this->get_logger(), "Simulating one step with control inputs u_T = %f, u_delta = %f", u[0], u[1]);
+
         // set sim solver inputs
-        sim_in_set(acados_sim_config, acados_sim_dims,
-                   acados_sim_in, "x", this->x);
-        sim_in_set(acados_sim_config, acados_sim_dims,
-                   acados_sim_in, "u", this->u);
+        sim_in_set(acados_sim_config,
+                   acados_sim_dims,
+                   acados_sim_in,
+                   "x",
+                   this->x);
+        sim_in_set(acados_sim_config,
+                   acados_sim_dims,
+                   acados_sim_in,
+                   "u",
+                   this->u);
 
         // call sim solver
+        auto start = this->now();
         int status = (model == "kin4") ? ihm2_kin4_acados_sim_solve((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_solve((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         if (status != ACADOS_SUCCESS) {
             throw FatalNodeError("acados_solve() failed with status " + std::to_string(status) + ".");
         }
+        auto end = this->now();
 
         // get sim solver outputs
-        sim_out_get(acados_sim_config, acados_sim_dims,
-                    acados_sim_out, "x", this->x);
+        sim_out_get(acados_sim_config,
+                    acados_sim_dims,
+                    acados_sim_out,
+                    "x",
+                    this->x);
 
         // override the pose and velocity and controls with the simulation output
         this->pose_msg.header.stamp = this->now();
@@ -252,6 +256,33 @@ private:
         visualization_msgs::msg::MarkerArray markers_msg;
         markers_msg.markers.push_back(get_car_marker(x[0], x[1], x[2], this->get_parameter("use_meshes").as_bool()));
         this->viz_pub->publish(markers_msg);
+
+        // publish diagnostics
+        double solver_runtime;
+        sim_out_get(acados_sim_config,
+                    acados_sim_dims,
+                    acados_sim_out,
+                    "time_tot",
+                    &solver_runtime);
+        diagnostic_msgs::msg::DiagnosticArray diag_msg;
+        diag_msg.header.stamp = this->now();
+        diag_msg.status.resize(1);
+        diag_msg.status[0].name = "sim";
+        diag_msg.status[0].hardware_id = "sim";
+        diag_msg.status[0].level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+        diag_msg.status[0].message = "OK";
+
+        diagnostic_msgs::msg::KeyValue solver_runtime_kv;
+        solver_runtime_kv.key = "solver runtime (ms)";
+        solver_runtime_kv.value = std::to_string(1000 * solver_runtime);
+        diag_msg.status[0].values.push_back(solver_runtime_kv);
+
+        diagnostic_msgs::msg::KeyValue sim_runtime_kv;
+        sim_runtime_kv.key = "sim runtime (ms)";
+        sim_runtime_kv.value = std::to_string(1000 * (end - start).seconds());
+        diag_msg.status[0].values.push_back(sim_runtime_kv);
+
+        this->diag_pub->publish(diag_msg);
     }
 
     void create_cones_markers(const std::string& track_name_or_file) {
@@ -295,15 +326,16 @@ private:
     }
 
 public:
-    SimNode() : Node("sim_node") {
+    ControlNode() : Node("sim_node") {
         // parameters:
         // - track_name_or_file: the name of the track or the path to the track file
-        // - sim_dt: the simulation time step
         // - T_max: the maximum torque
         // - T_min: the minimum torque
         // - delta_max: the maximum steering angle
         // - delta_min: the minimum steering angle
         // - manual_control: if true, the car can be controlled by the user
+        // - use_meshes: if true, the car and cones are represented by meshes, otherwise by arrows
+        // - model: the model to use for the simulation (kin4 or dyn6)
         this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
         this->declare_parameter<double>("T_max", 1600.0);
         this->declare_parameter<double>("T_min", -1600.0);
@@ -318,7 +350,7 @@ public:
         }
 
         this->callback_handle = this->add_on_set_parameters_callback(
-                std::bind(&SimNode::set_param_cb, this, std::placeholders::_1));
+                std::bind(&ControlNode::set_param_cb, this, std::placeholders::_1));
 
         // initialize x and u with zeros
         nx = (model == "kin4") ? IHM2_KIN4_NX : IHM2_DYN6_NX;
@@ -341,25 +373,26 @@ public:
         acados_sim_dims = (model == "kin4") ? ihm2_kin4_acados_get_sim_dims((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_get_sim_dims((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
 
         // publishers
-        this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz", 10);
+        this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz/sim", 10);
         this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("/ihm2/pose", 10);
         this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/velocity", 10);
-        this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/controls", 10);
+        this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag/sim", 10);
+        this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/current_controls", 10);
         this->tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);
 
         // subscribers
         this->controls_sub = this->create_subscription<ihm2::msg::Controls>(
-                "/ihm2/controls_target",
+                "/ihm2/target_controls",
                 10,
                 std::bind(
-                        &SimNode::controls_callback,
+                        &ControlNode::controls_callback,
                         this,
                         std::placeholders::_1));
         this->alternative_controls_sub = this->create_subscription<geometry_msgs::msg::Twist>(
-                "/ihm2/alternative_controls_target",
+                "/ihm2/alternative_target_controls",
                 10,
                 std::bind(
-                        &SimNode::alternative_controls_callback,
+                        &ControlNode::alternative_controls_callback,
                         this,
                         std::placeholders::_1));
 
@@ -367,21 +400,21 @@ public:
         this->reset_srv = this->create_service<std_srvs::srv::Empty>(
                 "/ihm2/reset",
                 std::bind(
-                        &SimNode::reset_srv_cb,
+                        &ControlNode::reset_srv_cb,
                         this,
                         std::placeholders::_1,
                         std::placeholders::_2));
         this->publish_cones_srv = this->create_service<std_srvs::srv::Empty>(
                 "/ihm2/publish_cones",
                 std::bind(
-                        &SimNode::publish_cones_srv_cb,
+                        &ControlNode::publish_cones_srv_cb,
                         this,
                         std::placeholders::_1,
                         std::placeholders::_2));
         this->load_map_srv = this->create_service<ihm2::srv::String>(
                 "/ihm2/load_map",
                 std::bind(
-                        &SimNode::load_map_srv_cb,
+                        &ControlNode::load_map_srv_cb,
                         this,
                         std::placeholders::_1,
                         std::placeholders::_2));
@@ -407,14 +440,14 @@ public:
         this->sim_timer = this->create_wall_timer(
                 std::chrono::duration<double>(sim_dt),
                 std::bind(
-                        &SimNode::sim_timer_cb,
+                        &ControlNode::sim_timer_cb,
                         this));
     }
 
-    ~SimNode() {
+    ~ControlNode() {
         int status = (model == "kin4") ? ihm2_kin4_acados_sim_free((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_free((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         if (status) {
-            throw FatalNodeError("ihm2_" + model + "_acados_sim_free() returned status " + std::to_string(status) + ".");
+            RCLCPP_WARN(this->get_logger(), "ihm2_%s_acados_sim_free() returned status %d.", model.c_str(), status);
         }
         (model == "kin4") ? ihm2_kin4_acados_sim_solver_free_capsule((ihm2_kin4_sim_solver_capsule*) acados_sim_capsule) : ihm2_dyn6_acados_sim_solver_free_capsule((ihm2_dyn6_sim_solver_capsule*) acados_sim_capsule);
         free(x);
@@ -424,7 +457,7 @@ public:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<SimNode>();
+    auto node = std::make_shared<ControlNode>();
     try {
         rclcpp::spin(node);
     } catch (const FatalNodeError& e) {

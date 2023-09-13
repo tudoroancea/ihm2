@@ -9,8 +9,10 @@ fi
 PYTHON_EXE=$(which python3)
 echo "Using python interpreter: $PYTHON_EXE"
 
-# generate the code for the acados OCP and simulator solvers
-python3 model.py
+if [ "$1" != "--skip_model_generation" ]; then
+    # generate the code for the acados OCP and simulator solvers
+    python3 model.py
+fi
 
 # run colcon build
 PYTHONWARNINGS=ignore:::setuptools.command.install,ignore:::setuptools.command.easy_install,ignore:::pkg_resources colcon build --symlink-install --executor parallel --cmake-args -DACADOS_PATH=$HOME/Developer/acados -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DPython3_EXECUTABLE=$PYTHON_EXE

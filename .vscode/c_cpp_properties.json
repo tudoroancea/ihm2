@@ -11,6 +11,10 @@
             "browse": {
                 "path": [
                     "${workspaceFolder}/**",
+                    "${workspaceFolder}/src/ihm2/include/**",
+                    "${workspaceFolder}/src/ihm2/ihm2_ocp_gen_code/**",
+                    "${workspaceFolder}/src/ihm2/ihm2_dyn6_sim_gen_code/**",
+                    "${workspaceFolder}/src/ihm2/ihm2_kin4_sim_gen_code/**",
                     "${workspaceFolder}/install/ihm2/include/ihm2/**",
                     "${env:HOME}/miniforge3/envs/ihm2/include/**",
                     "${env:ACADOS_SOURCE_DIR}/include/**"

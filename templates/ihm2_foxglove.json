@@ -1,0 +1,266 @@
+{
+  "configById": {
+    "3D!3mfo4f7": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 14.736842105260395,
+        "phi": 79.19879457050257,
+        "thetaOffset": 86.84562398703426,
+        "targetOffset": [
+          6.130445783696123,
+          0.7917793298367374,
+          -2.827399725460821e-14
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "ignoreColladaUpAxis": false,
+        "backgroundColor": "#565656",
+        "enableStats": true,
+        "syncCamera": false
+      },
+      "transforms": {
+        "frame:world": {
+          "visible": true
+        },
+        "frame:car": {
+          "visible": false
+        }
+      },
+      "topics": {
+        "/mesh": {
+          "visible": true,
+          "namespaces": {
+            "mesh": {
+              "visible": true
+            },
+            "cones": {
+              "visible": true
+            }
+          }
+        },
+        "/ihm2/pose": {
+          "visible": true
+        },
+        "/ihm2/viz": {
+          "visible": true
+        }
+      },
+      "layers": {
+        "930c05e1-0b0c-4143-9344-a0747eea3846": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "930c05e1-0b0c-4143-9344-a0747eea3846",
+          "layerId": "foxglove.Grid",
+          "size": 200,
+          "lineWidth": 1,
+          "color": "#ffffff30",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "order": 1,
+          "divisions": 200,
+          "frameId": "world"
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {},
+      "followTf": "car"
+    },
+    "virtual-joystick.Virtual Joystick!446nqyx": {
+      "topic": "/ihm2/alternative_controls_target",
+      "publishRate": 20,
+      "maxLinearSpeed": 100,
+      "maxAngularSpeed": 0.5,
+      "foxglovePanelTitle": "Joystick"
+    },
+    "CallService!1zs06v0": {
+      "requestPayload": "{}",
+      "layout": "horizontal",
+      "foxglovePanelTitle": "reset",
+      "serviceName": "/ihm2/reset",
+      "buttonText": "reset sim"
+    },
+    "CallService!10mxkor": {
+      "requestPayload": "{}",
+      "layout": "horizontal",
+      "buttonText": "publish cones",
+      "serviceName": "/ihm2/publish_cones",
+      "foxglovePanelTitle": "publish cones"
+    },
+    "Parameters!2jspdz": {
+      "title": "Parameters",
+      "foxglovePanelTitle": ""
+    },
+    "Plot!1xctq6s": {
+      "paths": [
+        {
+          "value": "/ihm2/controls.throttle",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "T"
+        },
+        {
+          "timestampMethod": "headerStamp",
+          "value": "/ihm2/alternative_controls_target.linear.x",
+          "enabled": true,
+          "label": "u_T"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "followingViewWidth": 10,
+      "foxglovePanelTitle": "throttle"
+    },
+    "Plot!2sv84j4": {
+      "paths": [
+        {
+          "value": "/ihm2/controls.steering",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "showLine": true,
+          "label": "delta"
+        },
+        {
+          "timestampMethod": "headerStamp",
+          "value": "/ihm2/alternative_controls_target.angular.z",
+          "enabled": true,
+          "label": "u_delta"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "foxglovePanelTitle": "steering",
+      "followingViewWidth": 10
+    },
+    "Plot!2bhy01b": {
+      "paths": [
+        {
+          "value": "/ihm2/velocity.twist.linear.x",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "v_x"
+        },
+        {
+          "timestampMethod": "headerStamp",
+          "value": "/ihm2/velocity.twist.linear.y",
+          "enabled": true,
+          "label": "v_y"
+        },
+        {
+          "timestampMethod": "headerStamp",
+          "value": "/ihm2/velocity.twist.angular.z",
+          "enabled": true,
+          "label": "r"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": false,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "followingViewWidth": 13,
+      "foxglovePanelTitle": "velocity"
+    },
+    "TopicGraph!1mts4d4": {},
+    "Tab!3yrtgon": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "main",
+          "layout": {
+            "first": {
+              "first": "3D!3mfo4f7",
+              "second": {
+                "first": {
+                  "first": "virtual-joystick.Virtual Joystick!446nqyx",
+                  "second": {
+                    "first": "CallService!1zs06v0",
+                    "second": "CallService!10mxkor",
+                    "direction": "column",
+                    "splitPercentage": 49.230769230769226
+                  },
+                  "direction": "row",
+                  "splitPercentage": 65.98639455782313
+                },
+                "second": "Parameters!2jspdz",
+                "direction": "column",
+                "splitPercentage": 60.27820710973724
+              },
+              "direction": "row"
+            },
+            "second": {
+              "first": {
+                "first": "Plot!1xctq6s",
+                "second": "Plot!2sv84j4",
+                "direction": "row"
+              },
+              "second": "Plot!2bhy01b",
+              "direction": "row",
+              "splitPercentage": 67.55102040816327
+            },
+            "direction": "column",
+            "splitPercentage": 76.56804733727812
+          }
+        },
+        {
+          "title": "graph",
+          "layout": "TopicGraph!1mts4d4"
+        }
+      ]
+    }
+  },
+  "globalVariables": {
+    "bruh": 3.6
+  },
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": "Tab!3yrtgon"
+}

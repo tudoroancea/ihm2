@@ -24,15 +24,51 @@ It features:
 
 ## Workspace setup
 
-Coming soon
-
-### Environment
-
-Coming soon
+1. clone this repository:
+  ```shell
+  git clone https://github.com/tudoroancea/ihm2 --filter=blob:none --recurse-submodules
+  cd ihm2
+  ```
+2. install miniforge3:
+  ```shell
+  curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+  bash Miniforge3-$(uname)-$(uname -m).sh
+  ```
+3. create a conda env
+  ```shell
+  mamba env create -f env.yml
+  ```
+4. install acados
+  ```shell
+  mamba activate ihm2
+  cd $HOME/miniforge3/envs/ihm2/src
+  git clone https://github.com/acados/acados.git --recurse-submodules --filter=blob:none
+  cd acados
+  mkdir build && cd build
+  cmake -DACADOS_WITH_OPENMP=ON ..
+  make install -j6
+  echo "export ACADOS_SOURCE_DIR=\$HOME/miniforge3/envs/ihm2/src/acados" >> ~/miniforge3/envs/ihm2/setup.sh
+  echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:\$ACADOS_SOURCE_DIR/lib" >> ~/miniforge3/envs/ihm2/setup.sh
+  echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:\$ACADOS_SOURCE_DIR/lib" >> ~/miniforge3/envs/ihm2/setup.sh
+  mamba deactivate
+  mamba activate ihm2
+  pip3 install -e $ACADOS_SOURCE_DIR/interfaces/acados_template
+  ```
+5. build workspace (first `cd` back to the dir where you cloned this repo):
+  ```shell
+  chmod +x scripts/*.sh
+  ./scripts/build.sh
+  ```
 
 ### Foxglove Studio
  
-Coming soon
+You can download the latest version of Foxglove Studio from
+[here](https://foxglove.dev/studio). To visualize data, you can then import the 
+created layout in [`templates/ihm2_foxglove.json`](templates/ihm2_foxglove.json) 
+and run the following command to run the foxglove bridge:
+```shell
+ros2 launch foxglove_ros_bridge foxglove_ros_bridge_launch.xml
+```
 
 ## References & credits
 

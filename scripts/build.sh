@@ -11,7 +11,7 @@ echo "Using python interpreter: $PYTHON_EXE"
 
 if [ "$1" != "--skip_model_generation" ]; then
     # generate the code for the acados OCP and simulator solvers
-    python3 model.py
+    python3 generate.py
 fi
 
 # run colcon build

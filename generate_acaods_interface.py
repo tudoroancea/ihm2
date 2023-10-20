@@ -6,9 +6,9 @@ from icecream import ic
 from time import perf_counter
 
 __all__ = [
-    "gen_model",
-    "get_ocp_solver",
-    "get_sim_solver",
+    "generate_model",
+    "generate_ocp_solver",
+    "generate_sim_solver",
 ]
 
 
@@ -57,11 +57,12 @@ def smooth_sgn(x: MX) -> MX:
     return tanh(1000 * x)
 
 
-def gen_model(
+def generate_model(
     id: str,
     kappa_ref: Function = None,
     right_width: Function = None,
     left_width: Function = None,
+    name: str = None,
 ) -> tuple[AcadosModel, Function]:
     assert id in {"kin4", "fkin4", "kin6", "fkin6", "dyn6", "fdyn6"}
     is_frenet = id[0] == "f"
@@ -117,7 +118,6 @@ def gen_model(
     if is_dynamic:
         F_Rz = m * g * l_R / (l_R + l_F)
         F_Fz = m * g * l_F / (l_R + l_F)
-        ic(F_Rz, F_Fz)
         alpha_R = atan2(v_y - l_R * r, 1e-6 + v_x)
         alpha_F = atan2(v_y + l_F * r, 1e-6 + v_x) - delta
         mu_Ry = D * sin(C * atan(B * alpha_R))
@@ -183,12 +183,9 @@ def gen_model(
     model.xdot = xdot
     model.f_impl_expr = xdot - f_expl
     model.f_expl_expr = f_expl
-
-    ic(x, u, xdot, f_expl)
-
     model.x = x
     model.u = u
-    model.name = f"ihm2_{id}"
+    model.name = f"ihm2_{id}" if name is None else name
 
     # constraints
     if is_frenet:
@@ -330,20 +327,18 @@ def gen_model_2(
     return model
 
 
-def get_ocp_solver(
+def generate_ocp_solver(
     model: AcadosModel,
     opts: AcadosOcpOptions,
     Nf: int,
-    dt: float,
     Q: np.ndarray,
     R: np.ndarray,
     Qe: np.ndarray,
     code_export_directory="ihm2_ocp_gen_code",
-    cmake=False,
+    use_cmake=False,
 ) -> AcadosOcpSolver:
     if not os.path.exists(code_export_directory):
         os.makedirs(code_export_directory)
-    # create COLCON_IGNORE file in the directory
     with open(os.path.join(code_export_directory, "COLCON_IGNORE"), "w") as f:
         f.write("")
 
@@ -461,16 +456,16 @@ def get_ocp_solver(
     return AcadosOcpSolver(
         ocp,
         json_file="ihm2_ocp.json",
-        cmake_builder=ocp_get_default_cmake_builder() if cmake else None,
+        cmake_builder=ocp_get_default_cmake_builder() if use_cmake else None,
         verbose=False,
     )
 
 
-def get_sim_solver(
+def generate_sim_solver(
     model: AcadosSimSolver,
     opts: AcadosSimOpts,
     code_export_directory="ihm2_sim_gen_code",
-    cmake=False,
+    use_cmake=False,
 ) -> AcadosSimSolver:
     if not os.path.exists(code_export_directory):
         os.makedirs(code_export_directory)
@@ -486,82 +481,6 @@ def get_sim_solver(
     return AcadosSimSolver(
         sim,
         json_file="ihm2_sim.json",
-        cmake_builder=builder if cmake else None,
+        cmake_builder=builder if use_cmake else None,
         verbose=False,
     )
-
-
-def generate_ocp_sim_code(csv_file="data/fsds_competition_2.csv"):
-    data = np.loadtxt(csv_file, delimiter=",", skiprows=1)
-    s_ref = data[:, 0]
-    kappa_ref = data[:, 4]
-    right_width = data[:, 5]
-    left_width = data[:, 6]
-
-    # create B-spline interpolants for kappa, right_width, left_width
-    kappa_ref_expr = interpolant("kappa_ref", "linear", [s_ref], kappa_ref)
-    right_width_expr = interpolant("right_width", "linear", [s_ref], right_width)
-    left_width_expr = interpolant("left_width", "linear", [s_ref], left_width)
-
-    # generate Frenet model for ocp
-    model = gen_model("fkin4", kappa_ref_expr, right_width_expr, left_width_expr)
-
-    # generate ocp solver
-    # for fkin4: x = (s, n, psi, v, T, delta), u = (u_T, u_delta)
-    Nf = 50  # number of discretization steps
-    dt = 0.02  # sampling time
-    Q = np.diag([1e-1, 5e-7, 5e-7, 5e-7, 5e-2, 2.5e-2])
-    R = np.diag([5e-1, 1e-1])
-    Qe = np.diag([1e-1, 2e-10, 2e-10, 2e-10, 1e-4, 4e-5])
-    ocp_solver_opts = AcadosOcpOptions()
-    ocp_solver_opts.tf = Nf * dt
-    ocp_solver_opts.qp_solver = "PARTIAL_CONDENSING_HPIPM"
-    ocp_solver_opts.nlp_solver_type = "SQP_RTI"
-    ocp_solver_opts.hessian_approx = "GAUSS_NEWTON"
-    ocp_solver_opts.hpipm_mode = "SPEED_ABS"
-    ocp_solver_opts.integrator_type = "ERK"
-    ocp_solver_opts.sim_method_num_stages = 4
-    ocp_solver_opts.sim_method_num_steps = 1
-    t0 = perf_counter()
-    ocp_solver = get_ocp_solver(
-        model,
-        ocp_solver_opts,
-        Nf,
-        dt,
-        Q,
-        R,
-        Qe,
-        "src/ihm2/ihm2_ocp_gen_code",
-        cmake=False,
-    )
-    t1 = perf_counter()
-    print(f"OCP solver generation time: {t1 - t0:.3f} s")
-
-    # generate regular model
-
-    # generate sim solver
-    sim_solver_opts = AcadosSimOpts()
-    sim_solver_opts.T = 0.01
-    sim_solver_opts.num_stages = 4
-    sim_solver_opts.num_steps = 10
-    sim_solver_opts.integrator_type = "IRK"
-    sim_solver_opts.collocation_type = "GAUSS_RADAU_IIA"
-    t0 = perf_counter()
-    get_sim_solver(
-        gen_model("kin4"),
-        sim_solver_opts,
-        "src/ihm2/ihm2_kin4_sim_gen_code",
-        cmake=False,
-    )
-    get_sim_solver(
-        gen_model("dyn6"),
-        sim_solver_opts,
-        "src/ihm2/ihm2_dyn6_sim_gen_code",
-        cmake=False,
-    )
-    t1 = perf_counter()
-    print(f"Sim solver generation time: {t1 - t0:.3f} s")
-
-
-if __name__ == "__main__":
-    generate_ocp_sim_code("data/fsds_competition_2.csv")

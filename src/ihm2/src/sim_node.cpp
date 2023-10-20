@@ -17,7 +17,7 @@
 #include "ihm2/common/cone_color.hpp"
 #include "ihm2/common/marker_color.hpp"
 #include "ihm2/common/math.hpp"
-#include "ihm2/common/track_database.hpp"
+#include "ihm2/common/tracks.hpp"
 #include "ihm2/external/icecream.hpp"
 #include "ihm2/msg/controls.hpp"
 #include "ihm2/srv/string.hpp"
@@ -301,7 +301,7 @@ private:
                                 i,
                                 cones(i, 0),
                                 cones(i, 1),
-                                is_orange(color) ? "orange" : to_string(color),
+                                is_orange(color) ? "orange" : cone_color_to_string(color),
                                 color != ConeColor::BIG_ORANGE,
                                 this->get_parameter("use_meshes").as_bool()));
             }

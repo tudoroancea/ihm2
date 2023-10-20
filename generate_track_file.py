@@ -1,6 +1,8 @@
 # Copyright (c) 2023. Tudor Oancea
+import os
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy import odr
 import trajectory_planning_helpers as tph
 from icecream import ic
 from track_database import Track
@@ -9,10 +11,15 @@ from track_database.utils import plot_cones
 from utils import unwrapToPi
 
 
-def main():
-    track_name = "fsds_competition_2"
-    track = Track(track_name)
+def generate_track_file(
+    track_name="fsds_competition_1",
+    outfile="src/ihm2/tracks/fsds_competition_1.csv",
+    plot=False,
+):
+    if not os.path.exists(os.path.dirname(outfile)):
+        os.makedirs(os.path.dirname(outfile))
 
+    track = Track(track_name)
     (
         XY_ref,
         _,
@@ -31,7 +38,6 @@ def main():
         stepsize_interp=0.1,
         closed=True,
     )
-    ic(np.hypot(XY_ref[-1, 0] - XY_ref[0, 0], XY_ref[-1, 1] - XY_ref[0, 1]))
     total_length = s_ref[-1] + np.hypot(
         XY_ref[-1, 0] - XY_ref[0, 0], XY_ref[-1, 1] - XY_ref[0, 1]
     )
@@ -48,30 +54,31 @@ def main():
         t_values=t_vals,
     )
 
-    plt.figure()
-    plt.plot(s_ref, unwrapToPi(phi_ref), label="headings")
-    plt.legend()
-    plt.figure()
-    plt.plot(s_ref, kappa_ref, label="curvatures")
-    plt.legend()
+    if plot:
+        plt.figure()
+        plt.plot(s_ref, unwrapToPi(phi_ref), label="headings")
+        plt.legend()
+        plt.figure()
+        plt.plot(s_ref, kappa_ref, label="curvatures")
+        plt.legend()
 
-    plt.figure()
-    plot_cones(
-        track.blue_cones,
-        track.yellow_cones,
-        track.big_orange_cones,
-        track.small_orange_cones,
-        show=False,
-    )
-    plt.plot(XY_ref[:, 0], XY_ref[:, 1], label="reference")
-    plt.scatter(
-        track.center_line[:, 0],
-        track.center_line[:, 1],
-        s=14,
-        c="k",
-        marker="x",
-        label="center line",
-    )
+        plt.figure()
+        plot_cones(
+            track.blue_cones,
+            track.yellow_cones,
+            track.big_orange_cones,
+            track.small_orange_cones,
+            show=False,
+        )
+        plt.plot(XY_ref[:, 0], XY_ref[:, 1], label="reference")
+        plt.scatter(
+            track.center_line[:, 0],
+            track.center_line[:, 1],
+            s=14,
+            c="k",
+            marker="x",
+            label="center line",
+        )
 
     s_ref = np.hstack((s_ref - total_length, s_ref, s_ref + total_length))
     XY_ref = np.vstack((XY_ref, XY_ref, XY_ref))
@@ -81,7 +88,7 @@ def main():
         (right_left_widths, right_left_widths, right_left_widths)
     )
     np.savetxt(
-        f"data/{track_name}.csv",
+        outfile,
         np.array(
             (
                 s_ref,
@@ -98,8 +105,14 @@ def main():
         fmt="%.6f",
     )
 
-    plt.show()
+    if plot:
+        plt.show()
 
 
 if __name__ == "__main__":
-    main()
+    for track_name in [
+        "fsds_competition_1",
+        # "fsds_competition_2",
+        # "fsds_competition_3",
+    ]:
+        generate_track_file(track_name)

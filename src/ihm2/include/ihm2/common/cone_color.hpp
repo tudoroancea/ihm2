@@ -12,8 +12,8 @@ enum class ConeColor : char {
 
 bool is_orange(const ConeColor& c);
 
-ConeColor from_string(const std::string& s);
+ConeColor cone_color_from_string(const std::string& s);
 
-std::string to_string(const ConeColor& c);
+std::string cone_color_to_string(const ConeColor& c);
 
 #endif  // CONE_COLOR_HPP

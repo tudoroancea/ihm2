@@ -38,19 +38,23 @@ endif()
 message(STATUS "ACADOS_PATH: ${ACADOS_PATH}")
 find_library(ACADOS_LIB acados PATHS "${ACADOS_PATH}/lib")
 
-# define track database path
+# define paths for tracks
 add_compile_definitions(TRACK_DATABASE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../track-database/track_database/data")
+add_compile_definitions(TRACKS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tracks")
 
 # ocp and sim json
-add_compile_definitions(OCP_JSON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../../ihm2_ocp.json")
-add_compile_definitions(SIM_JSON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../../ihm2_sim.json")
+add_compile_definitions(OCP_JSON_PATH=" ${CMAKE_CURRENT_SOURCE_DIR}/../../ihm2_ocp.json ")
+add_compile_definitions(SIM_JSON_PATH=" ${CMAKE_CURRENT_SOURCE_DIR}/../../ihm2_sim.json ")
+
+# include generated code
+add_subdirectory(generated)
 
 # generate custom message and service types
 set(msg_files
-  "msg/Controls.msg"
+  " msg/Controls.msg "
 )
 set(srv_files
-  "srv/String.srv"
+  " srv/String.srv "
 )
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${msg_files}
@@ -66,59 +70,55 @@ ament_auto_add_library(ihm2_common SHARED
   include/ihm2/common/cone_color.hpp
   include/ihm2/common/marker_color.hpp
   include/ihm2/common/math.hpp
-  include/ihm2/common/track_database.hpp
-  include/ihm2/common/track.hpp
+  include/ihm2/common/tracks.hpp
   src/common/cone_color.cpp
   src/common/marker_color.cpp
   src/common/math.cpp
-  src/common/track_database.cpp
-  src/common/track.cpp
+  src/common/tracks.cpp
 )
 target_link_libraries(ihm2_common Eigen3::Eigen nlohmann_json::nlohmann_json)
 
 # generate sim node
 find_library(IHM2_KIN4_SIM_LIB acados_sim_solver_ihm2_kin4 PATHS ihm2_kin4_sim_gen_code)
 find_library(IHM2_DYN6_SIM_LIB acados_sim_solver_ihm2_dyn6 PATHS ihm2_dyn6_sim_gen_code)
-message(STATUS "IHM2_KIN4_SIM_LIB: ${IHM2_KIN4_SIM_LIB}")
-message(STATUS "IHM2_DYN6_SIM_LIB: ${IHM2_DYN6_SIM_LIB}")
+message(STATUS " IHM2_KIN4_SIM_LIB: ${IHM2_KIN4_SIM_LIB} ")
+message(STATUS " IHM2_DYN6_SIM_LIB: ${IHM2_DYN6_SIM_LIB} ")
 ament_auto_add_executable(sim_node src/sim_node.cpp)
 target_link_libraries(sim_node
-  "${cpp_typesupport_target}" # for custom message and service types defined in this package
+  " ${cpp_typesupport_target} " # for custom message and service types defined in this package
   ${ACADOS_LIB} # acados library
   ${IHM2_KIN4_SIM_LIB} # acados sim solver generated code
   ${IHM2_DYN6_SIM_LIB} # acados sim solver generated code
   ihm2_common # ihm2 common library
 )
 target_include_directories(sim_node PUBLIC
-  "${ACADOS_PATH}/include"
-  "${ACADOS_PATH}/include/acados"
-  "ihm2_kin4_sim_gen_code"
-  "ihm2_kin4_sim_gen_code/ihm2_kin4_model"
-  "ihm2_dyn6_sim_gen_code"
-  "ihm2_dyn6_sim_gen_code/ihm2_dyn6_model"
+  " ${ACADOS_PATH}/include "
+  " ${ACADOS_PATH}/include/acados "
+  " ihm2_kin4_sim_gen_code "
+  " ihm2_kin4_sim_gen_code/ihm2_kin4_model "
+  " ihm2_dyn6_sim_gen_code "
+  " ihm2_dyn6_sim_gen_code/ihm2_dyn6_model "
 )
 
 # generate control node
 find_library(IHM2_FKIN4_OCP_LIB acados_ocp_solver_ihm2_fkin4 PATHS ihm2_ocp_gen_code)
-message(STATUS "IHM2_FKIN4_OCP_LIB: ${IHM2_FKIN4_OCP_LIB}")
+message(STATUS " IHM2_FKIN4_OCP_LIB: ${IHM2_FKIN4_OCP_LIB} ")
 ament_auto_add_executable(control_node src/control_node.cpp)
 target_link_libraries(control_node
-  "${cpp_typesupport_target}" # for custom message and service types defined in this package
+  " ${cpp_typesupport_target} " # for custom message and service types defined in this package
   ${ACADOS_LIB} # acados library
   ${IHM2_FKIN4_OCP_LIB} # acados ocp solver generated code
   ihm2_common # ihm2 common library
 )
 target_include_directories(control_node PUBLIC
-  "${ACADOS_PATH}/include"
-  "${ACADOS_PATH}/include/acados"
-  "${ACADOS_PATH}/include/acados_c"
-  "${ACADOS_PATH}/include/blasfeo/include"
-  "${ACADOS_PATH}/include/hpipm/include"
-  "ihm2_ocp_gen_code"
-  "ihm2_ocp_gen_code/ihm2_fkin4_model"
-  "ihm2_ocp_gen_code/ihm2_fkin4_constraints"
-  "ihm2_ocp_gen_code/ihm2_fkin4_cost"
-)
-
-# install everything in the ihm2 package
+  " ${ACADOS_PATH}/include "
+  " ${ACADOS_PATH}/include/acados "
+  " ${ACADOS_PATH}/include/acados_c "
+  " ${ACADOS_PATH}/include/blasfeo/include "
+  " ${ACADOS_PATH}/include/hpipm/include "
+  " ihm2_ocp_gen_code "
+  " ihm2_ocp_gen_code/ihm2_fkin4_model "
+  " ihm2_ocp_gen_code/ihm2_fkin4_constraints "
+  " ihm2_ocp_gen_code/ihm2_fkin4_cost "
+) # install everything in the ihm2 package
 ament_auto_package(INSTALL_TO_SHARE)

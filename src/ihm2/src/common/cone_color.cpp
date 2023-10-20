@@ -6,7 +6,7 @@ bool is_orange(const ConeColor& c) {
     return c == ConeColor::BIG_ORANGE || c == ConeColor::SMALL_ORANGE;
 }
 
-ConeColor from_string(const std::string& s) {
+ConeColor cone_color_from_string(const std::string& s) {
     if (s == "blue") {
         return ConeColor::BLUE;
     } else if (s == "yellow") {
@@ -20,7 +20,7 @@ ConeColor from_string(const std::string& s) {
     }
 }
 
-std::string to_string(const ConeColor& c) {
+std::string cone_color_to_string(const ConeColor& c) {
     if (c == ConeColor::BLUE) {
         return "blue";
     } else if (c == ConeColor::YELLOW) {

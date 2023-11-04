@@ -3,13 +3,13 @@
     "3D!3mfo4f7": {
       "cameraState": {
         "perspective": true,
-        "distance": 14.736842105260395,
-        "phi": 79.19879457050257,
-        "thetaOffset": 86.84562398703426,
+        "distance": 12.003249999985673,
+        "phi": 65.47589141004684,
+        "thetaOffset": 88.75557131280605,
         "targetOffset": [
-          6.130445783696123,
-          0.7917793298367374,
-          -2.827399725460821e-14
+          1.2997678567916156,
+          0.1672309082469315,
+          -2.993426399419488e-14
         ],
         "target": [
           0,
@@ -58,6 +58,9 @@
         },
         "/ihm2/viz": {
           "visible": true
+        },
+        "/ihm2/viz/sim": {
+          "visible": true
         }
       },
       "layers": {
@@ -98,10 +101,10 @@
       "followTf": "car"
     },
     "virtual-joystick.Virtual Joystick!446nqyx": {
-      "topic": "/ihm2/alternative_controls_target",
+      "topic": "/ihm2/alternative_target_controls",
       "publishRate": 20,
-      "maxLinearSpeed": 100,
-      "maxAngularSpeed": 0.5,
+      "maxLinearSpeed": 500,
+      "maxAngularSpeed": 0.1,
       "foxglovePanelTitle": "Joystick"
     },
     "CallService!1zs06v0": {
@@ -109,7 +112,9 @@
       "layout": "horizontal",
       "foxglovePanelTitle": "reset",
       "serviceName": "/ihm2/reset",
-      "buttonText": "reset sim"
+      "buttonText": "reset sim",
+      "buttonTooltip": "reset baby",
+      "buttonColor": "#c32e2e"
     },
     "CallService!10mxkor": {
       "requestPayload": "{}",
@@ -118,28 +123,28 @@
       "serviceName": "/ihm2/publish_cones",
       "foxglovePanelTitle": "publish cones"
     },
-    "Parameters!2jspdz": {
-      "title": "Parameters",
-      "foxglovePanelTitle": ""
+    "DiagnosticStatusPanel!m945yo": {
+      "topicToRender": "/ihm2/diag/sim",
+      "selectedHardwareId": "sim"
     },
     "Plot!1xctq6s": {
       "paths": [
         {
-          "value": "/ihm2/controls.throttle",
+          "value": "/ihm2/current_controls.throttle",
           "enabled": true,
           "timestampMethod": "headerStamp",
           "label": "T"
         },
         {
           "timestampMethod": "headerStamp",
-          "value": "/ihm2/alternative_controls_target.linear.x",
+          "value": "/ihm2/alternative_target_controls.linear.x",
           "enabled": true,
           "label": "u_T"
         }
       ],
       "showXAxisLabels": true,
       "showYAxisLabels": true,
-      "showLegend": true,
+      "showLegend": false,
       "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "isSynced": true,
@@ -151,7 +156,7 @@
     "Plot!2sv84j4": {
       "paths": [
         {
-          "value": "/ihm2/controls.steering",
+          "value": "/ihm2/current_controls.steering",
           "enabled": true,
           "timestampMethod": "headerStamp",
           "showLine": true,
@@ -159,14 +164,14 @@
         },
         {
           "timestampMethod": "headerStamp",
-          "value": "/ihm2/alternative_controls_target.angular.z",
+          "value": "/ihm2/alternative_target_controls.angular.z",
           "enabled": true,
           "label": "u_delta"
         }
       ],
       "showXAxisLabels": true,
       "showYAxisLabels": true,
-      "showLegend": true,
+      "showLegend": false,
       "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "isSynced": true,
@@ -228,11 +233,12 @@
                   "direction": "row",
                   "splitPercentage": 65.98639455782313
                 },
-                "second": "Parameters!2jspdz",
+                "second": "DiagnosticStatusPanel!m945yo",
                 "direction": "column",
                 "splitPercentage": 60.27820710973724
               },
-              "direction": "row"
+              "direction": "row",
+              "splitPercentage": 43.12925170068027
             },
             "second": {
               "first": {

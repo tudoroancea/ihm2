@@ -31,6 +31,7 @@ E = 0.97
 t_T = 1e-3  # time constant for throttle actuator
 # t_delta = 0.02  # time constant for steering actuator
 t_delta = 1e-3
+C_downforce = 3.96864
 
 # derived parameters
 C = l_R / (l_R + l_F)
@@ -141,8 +142,8 @@ def gen_dyn6_model() -> AcadosModel:
     F_Fx = 0.5 * F_motor
 
     # lateral dynamics
-    F_Rz = m * g * l_F / (l_R + l_F)
-    F_Fz = m * g * l_R / (l_R + l_F)
+    F_Rz = m * g * l_F / (l_R + l_F) + 0.5 * C_downforce * v_x * v_x
+    F_Fz = m * g * l_R / (l_R + l_F) + 0.5 * C_downforce * v_x * v_x
     alpha_R = -smooth_sgn(v_x) * atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x))
     alpha_F = (
         -smooth_sgn(v_x) * atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x)) + delta

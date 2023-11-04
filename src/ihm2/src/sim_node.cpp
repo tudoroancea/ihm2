@@ -188,50 +188,8 @@ private:
     }
 
     void sim_timer_cb() {
-        double B = 11.15;
-        double C = 1.98;
-        double D = 1.67;
-        double E = 0.97;
-
-        double g = 9.81;
-        double m = 230.0;
-        double I_z = 137.583;
-        double l_R = 0.785;
-        double l_F = 0.785;
-
-        double C_m0 = 4.950;
-        double C_r0 = 297.030;
-        double C_r1 = 16.665;
-        double C_r2 = 0.6784;
-        double F_motor = C_m0 * x[nx - 2],
-               F_drag = -(C_r0 + C_r1 * x[3] + C_r2 * x[3] * x[3]) * std::tanh(1000 * x[3]),
-               F_Rx = 0.5 * F_motor + F_drag,
-               F_Fx = 0.5 * F_motor;
-
-        double v_x(x[3]),
-                v_y(x[4]),
-                r(x[5]),
-                delta(x[nx - 1]),
-                T(x[nx - 2]);
-
-        double alpha_F(std::atan2(x[4] + 0.785 * x[5], x[3]) - x[nx - 1]),
-                alpha_R(std::atan2(x[4] - 0.785 * x[5], x[3])),
-                F_Rz(1128.15),
-                F_Fz(1128.15),
-                mu_Ry(D * std::sin(C * std::atan(B * alpha_R - E * (B * alpha_R - std::atan(B * alpha_R))))),
-                mu_Fy(D * std::sin(C * std::atan(B * alpha_F - E * (B * alpha_F - std::atan(B * alpha_F))))),
-                F_Fy(F_Fz * mu_Fy),
-                F_Ry(F_Rz * mu_Ry);
-
-        double vx_dot = (F_Rx + F_Fx * std::cos(delta) - F_Fy * std::sin(delta)) / m + v_y * r;
-        double vy_dot = (F_Ry + F_Fx * std::sin(delta) + F_Fy * std::cos(delta)) / m - v_x * r;
-        double r_dot = (l_F * (F_Fx * std::sin(delta) + F_Fy * std::cos(delta)) - l_R * F_Ry) / I_z;
-
-        RCLCPP_INFO(this->get_logger(), "u_T = %.3f, u_delta = %.3f, alpha_F = %.3f, alpha_R=%.3f, mu_Fy = %.3f, mu_Ry=%.3f, F_Fy = %.3f, F_Ry = %.3f", u[0], u[1], alpha_F, alpha_R, mu_Fy, mu_Ry, F_Fy, F_Ry);
-        RCLCPP_INFO(this->get_logger(), "F_motor=%.3f, F_drag=%.2f, vx_dot = %.3f, vy_dot = %.3f, r_dot = %.3f", F_motor, F_drag, vx_dot, vy_dot, r_dot);
-
         // depending on the last longitudinal velocity v_x, decide which model to use and set its inputs
-        bool use_kin6 = std::hypot(x[3], x[4]) < this->get_parameter("v_dyn").as_double();
+        bool use_kin6(std::hypot(x[3], x[4]) < this->get_parameter("v_dyn").as_double());
         try {
             if (use_kin6) {
                 sim_in_set(kin6_sim_config,

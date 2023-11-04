@@ -48,7 +48,7 @@ delta_dot_max = 2.0
 
 
 def smooth_sgn(x: MX) -> MX:
-    return tanh(100000 * x)
+    return tanh(1e6 * x)
 
 
 def smooth_dev(x: MX) -> MX:
@@ -141,24 +141,12 @@ def gen_dyn6_model() -> AcadosModel:
     F_Fx = 0.5 * F_motor
 
     # lateral dynamics
-    F_Rz = m * g * l_F / (l_R + l_F)  # / 10
-    F_Fz = m * g * l_R / (l_R + l_F)  # / 10
-    # F_Rz = .0
-    # F_Fz = .0
-    ic(F_Rz, F_Fz)
-    alpha_R = (
-        smooth_sgn(v_x)
-        * smooth_sgn(v_y)
-        * atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x))
-    )
+    F_Rz = m * g * l_F / (l_R + l_F)
+    F_Fz = m * g * l_R / (l_R + l_F)
+    alpha_R = -smooth_sgn(v_x) * atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x))
     alpha_F = (
-        smooth_sgn(v_x)
-        * smooth_sgn(v_y)
-        * atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x))
-        - delta
+        -smooth_sgn(v_x) * atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x)) + delta
     )
-    alpha_F *= -1
-    alpha_R *= -1
     mu_Ry = D * sin(C * atan(B * alpha_R - E * (B * alpha_R - atan(B * alpha_R))))
     mu_Fy = D * sin(C * atan(B * alpha_F - E * (B * alpha_F - atan(B * alpha_F))))
     F_Ry = F_Rz * mu_Ry

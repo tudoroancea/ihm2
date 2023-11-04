@@ -20,3 +20,4 @@ PYTHONWARNINGS=ignore:::setuptools.command.install,ignore:::setuptools.command.e
 # add stuff to DYLD_LIBRARY_PATH
 echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_dyn6_sim_gen_code" >> $(pwd)/install/setup.sh
 echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_kin6_sim_gen_code" >> $(pwd)/install/setup.sh
+echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_dyn10_sim_gen_code" >> $(pwd)/install/setup.sh

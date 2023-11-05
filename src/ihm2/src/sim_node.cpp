@@ -106,30 +106,33 @@ public:
 
 class SimNode : public rclcpp::Node {
 private:
-    rclcpp::Subscription<ihm2::msg::Controls>::SharedPtr controls_sub;
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr alternative_controls_sub;
-    rclcpp::Service<std_srvs::srv::Empty>::SharedPtr reset_srv;
-    rclcpp::Service<std_srvs::srv::Empty>::SharedPtr publish_cones_srv;
-    rclcpp::Service<ihm2::srv::String>::SharedPtr load_map_srv;
+    // publishers
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr viz_pub;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub;
     rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
-    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
+    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
+    // subscribers
+    rclcpp::Subscription<ihm2::msg::Controls>::SharedPtr controls_sub;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr alternative_controls_sub;
+
+    // services
+    rclcpp::Service<std_srvs::srv::Empty>::SharedPtr reset_srv;
+    rclcpp::Service<std_srvs::srv::Empty>::SharedPtr publish_cones_srv;
+
+    // simulation variables
+    double* x;
+    double* u;
+    size_t nx, nu;
     rclcpp::TimerBase::SharedPtr sim_timer;
-    // rclcpp::Time sim_start_time;
     visualization_msgs::msg::MarkerArray cones_marker_array;
     geometry_msgs::msg::PoseStamped pose_msg;
     geometry_msgs::msg::TwistStamped vel_msg;
     geometry_msgs::msg::TransformStamped transform;
 
-    double* x;
-    double* u;
-    size_t nx, nu;
-    std::string model;
-
+    // acados sim solver variables
     void* kin6_sim_capsule;
     sim_config* kin6_sim_config;
     sim_in* kin6_sim_in;
@@ -172,11 +175,6 @@ private:
     }
 
     void reset_srv_cb([[maybe_unused]] const std_srvs::srv::Empty::Request::SharedPtr request, [[maybe_unused]] std_srvs::srv::Empty::Response::SharedPtr response) {
-        // reset the simulation
-        // - reset the car pose
-        // - reset the lap time
-        // - reset the simulation time
-        // - reset the acados sim solver
         for (size_t i = 0; i < nx; i++) {
             x[i] = 0.0;
         }
@@ -184,11 +182,26 @@ private:
         for (size_t i = 0; i < nu; i++) {
             u[i] = 0.0;
         }
-        RCLCPP_INFO(this->get_logger(), "Reset x and u");
+        // create string containing new values of x and u
+        std::string msg = "Reset simulation to x=[";
+        for (size_t i = 0; i < nx; i++) {
+            msg += std::to_string(x[i]);
+            if (i < nx - 1) {
+                msg += ", ";
+            }
+        }
+        msg += "] and u=[";
+        for (size_t i = 0; i < nu; i++) {
+            msg += std::to_string(u[i]);
+            if (i < nu - 1) {
+                msg += ", ";
+            }
+        }
+        RCLCPP_INFO(this->get_logger(), msg.c_str());
     }
 
     void sim_timer_cb() {
-        // depending on the last longitudinal velocity v_x, decide which model to use and set its inputs
+        // depending on the last velocity v=sqrt(v_x^2+v_y^2), decide which model to use and set its inputs
         bool use_kin6(std::hypot(x[3], x[4]) < this->get_parameter("v_dyn").as_double());
         try {
             if (use_kin6) {

@@ -2,7 +2,6 @@
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import odr
 import trajectory_planning_helpers as tph
 from icecream import ic
 from track_database import Track

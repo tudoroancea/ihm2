@@ -9,7 +9,7 @@ fi
 PYTHON_EXE=$(which python3)
 echo "Using python interpreter: $PYTHON_EXE"
 
-if [ "$1" != "--skip_model_generation" ]; then
+if [ "$1" != "--skip_gen" ]; then
     # generate the code for the acados OCP and simulator solvers
     python3 scripts/gen_sim.py
 fi

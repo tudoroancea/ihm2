@@ -146,27 +146,17 @@ private:
 
     void controls_callback(const ihm2::msg::Controls::SharedPtr msg) {
         if (!this->get_parameter("manual_control").as_bool()) {
-            u[0] = clip(
-                    msg->throttle,
-                    this->get_parameter("T_min").as_double(),
-                    this->get_parameter("T_max").as_double());
-            u[1] = clip(
-                    msg->steering,
-                    this->get_parameter("delta_min").as_double(),
-                    this->get_parameter("delta_max").as_double());
+            double T_max = this->get_parameter("T_max").as_double(), delta_max = this->get_parameter("delta_max").as_double();
+            u[0] = clip(msg->throttle, -T_max, T_max);
+            u[1] = clip(msg->steering, -delta_max, delta_max);
         }
     }
 
     void alternative_controls_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
         if (this->get_parameter("manual_control").as_bool()) {
-            u[0] = clip(
-                    msg->linear.x,
-                    this->get_parameter("T_min").as_double(),
-                    this->get_parameter("T_max").as_double());
-            u[1] = clip(
-                    msg->angular.z,
-                    this->get_parameter("delta_min").as_double(),
-                    this->get_parameter("delta_max").as_double());
+            double T_max = this->get_parameter("T_max").as_double(), delta_max = this->get_parameter("delta_max").as_double();
+            u[0] = clip(msg->linear.x, -T_max, T_max);
+            u[1] = clip(msg->angular.z, -delta_max, delta_max);
         }
     }
 
@@ -204,6 +194,7 @@ private:
     }
 
     void sim_timer_cb() {
+        auto start = this->now();
         // depending on the last velocity v=sqrt(v_x^2+v_y^2), decide which model to use and set its inputs
         bool use_kin6(std::hypot(x[3], x[4]) < this->get_parameter("v_dyn").as_double());
         try {
@@ -236,12 +227,10 @@ private:
         }
 
         // call sim solver
-        auto start = this->now();
         int status = (use_kin6) ? ihm2_kin6_acados_sim_solve((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule) : ihm2_dyn6_acados_sim_solve((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
         if (status != ACADOS_SUCCESS) {
             throw FatalNodeError("acados_solve() failed with status " + std::to_string(status) + " for solver " + (use_kin6 ? "kin6" : "dyn6") + ".");
         }
-        auto end = this->now();
 
         // get sim solver outputs
         if (use_kin6) {
@@ -265,6 +254,8 @@ private:
             x[4] = 0.0;
             x[5] = 0.0;
         }
+
+        auto end = this->now();
 
         // override the pose and velocity and controls with the simulation output
         this->pose_msg.header.stamp = this->now();
@@ -301,20 +292,6 @@ private:
         this->viz_pub->publish(markers_msg);
 
         // publish diagnostics
-        double solver_runtime;
-        if (use_kin6) {
-            sim_out_get(kin6_sim_config,
-                        kin6_sim_dims,
-                        kin6_sim_out,
-                        "time_tot",
-                        &solver_runtime);
-        } else {
-            sim_out_get(dyn6_sim_config,
-                        dyn6_sim_dims,
-                        dyn6_sim_out,
-                        "time_tot",
-                        &solver_runtime);
-        }
         diagnostic_msgs::msg::DiagnosticArray diag_msg;
         diag_msg.header.stamp = this->now();
         diag_msg.status.resize(1);
@@ -322,15 +299,15 @@ private:
         diag_msg.status[0].level = diagnostic_msgs::msg::DiagnosticStatus::OK;
         diag_msg.status[0].message = "OK";
 
-        diagnostic_msgs::msg::KeyValue solver_runtime_kv;
-        solver_runtime_kv.key = "solver runtime (ms)";
-        solver_runtime_kv.value = std::to_string(1000 * solver_runtime);
-        diag_msg.status[0].values.push_back(solver_runtime_kv);
-
         diagnostic_msgs::msg::KeyValue sim_runtime_kv;
         sim_runtime_kv.key = "sim runtime (ms)";
         sim_runtime_kv.value = std::to_string(1000 * (end - start).seconds());
         diag_msg.status[0].values.push_back(sim_runtime_kv);
+
+        diagnostic_msgs::msg::KeyValue track_name_kv;
+        track_name_kv.key = "track name";
+        track_name_kv.value = this->get_parameter("track_name_or_file").as_string();
+        diag_msg.status[0].values.push_back(track_name_kv);
 
         diagnostic_msgs::msg::KeyValue model_kv;
         model_kv.key = "model";
@@ -377,9 +354,7 @@ public:
         // - v_dyn: from what speed the dynamic model should be used
         this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
         this->declare_parameter<double>("T_max", 1107.0);
-        this->declare_parameter<double>("T_min", -1107.0);
         this->declare_parameter<double>("delta_max", 0.5);
-        this->declare_parameter<double>("delta_min", -0.5);
         this->declare_parameter<bool>("manual_control", true);
         this->declare_parameter<bool>("use_meshes", true);
         this->declare_parameter<double>("v_dyn", 3.0);

@@ -85,7 +85,7 @@ private:
         double* Yref = new double;
         double* phi_ref = new double;
         this->track->project(Eigen::Vector2d(X, Y), this->s_guess, 2.0, s, Xref, Yref, phi_ref);
-        this->s_guess = *s + v_x * 0.01;
+        this->s_guess = std::fmod(*s + v_x * 0.01, this->track->length());
         // longitudinal control
         double epsilon = this->get_parameter("v_x_ref").as_double() - v_x, epsilon_integral = 0.0;
         double T = clip(

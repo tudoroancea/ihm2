@@ -282,3 +282,7 @@ void Track::project(
         interp(coeffs_left_width, *s_proj, *left_width_proj, id_min + id_low);
     }
 }
+
+double Track::length() const {
+    return -s_ref(0);
+}

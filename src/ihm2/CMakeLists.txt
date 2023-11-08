@@ -103,6 +103,12 @@ target_link_libraries(stanley_control_node
   ihm2_common # ihm2 common library
 )
 
+# launch files
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}/
+)
+
 # generate control node
 # find_library(IHM2_FKIN4_OCP_LIB acados_ocp_solver_ihm2_fkin4 PATHS ihm2_ocp_gen_code)
 # message(STATUS " IHM2_FKIN4_OCP_LIB: ${IHM2_FKIN4_OCP_LIB} ")

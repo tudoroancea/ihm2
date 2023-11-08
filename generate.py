@@ -8,7 +8,7 @@ from generate_acaods_interface import (
     generate_ocp_solver,
     generate_sim_solver,
 )
-from generate_track_file import generate_track_file
+from scripts.gen_track_file import generate_track_file
 
 
 def main():

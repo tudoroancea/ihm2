@@ -12,6 +12,7 @@ echo "Using python interpreter: $PYTHON_EXE"
 if [ "$1" != "--skip_gen" ]; then
     # generate the code for the acados OCP and simulator solvers
     python3 scripts/gen_sim.py
+    python3 scripts/gen_track_file.py
 fi
 
 # run colcon build

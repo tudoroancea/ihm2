@@ -61,6 +61,8 @@ public:
             double* kappa_ref = nullptr,
             double* right_width = nullptr,
             double* left_width = nullptr);
+
+    double length() const;
 };
 
 

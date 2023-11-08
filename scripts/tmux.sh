@@ -15,7 +15,7 @@ then
     tmux send-keys -t 'ros' 'mamba activate ihm2; . install/setup.sh' C-m
 
     tmux new-window -t $SESSION:2 -n 'debug'
-    tmux send-keys -t 'debug' 'scdb' C-m
+    tmux send-keys -t 'debug' 'mamba activate ihm2; . install/setup.sh' C-m
 fi
 
 tmux attach-session -t $SESSION:1

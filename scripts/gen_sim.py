@@ -175,10 +175,8 @@ def gen_dyn6_model() -> AcadosModel:
     # lateral dynamics
     F_Rz = m * g * l_F / (l_R + l_F) + 0.5 * C_downforce * v_x * v_x
     F_Fz = m * g * l_R / (l_R + l_F) + 0.5 * C_downforce * v_x * v_x
-    alpha_R = -smooth_sgn(v_x) * atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x))
-    alpha_F = (
-        -smooth_sgn(v_x) * atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x)) + delta
-    )
+    alpha_R = -atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x))
+    alpha_F = delta - atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x))
     mu_Ry = D * sin(C * atan(B * alpha_R - E * (B * alpha_R - atan(B * alpha_R))))
     mu_Fy = D * sin(C * atan(B * alpha_F - E * (B * alpha_F - atan(B * alpha_F))))
     F_Ry = F_Rz * mu_Ry

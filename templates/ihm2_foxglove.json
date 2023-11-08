@@ -3,13 +3,13 @@
     "3D!3mfo4f7": {
       "cameraState": {
         "perspective": true,
-        "distance": 12.003249999985673,
-        "phi": 65.47589141004684,
-        "thetaOffset": 88.75557131280605,
+        "distance": 13.999999999957666,
+        "phi": 69.31857779578385,
+        "thetaOffset": 89.29801458671838,
         "targetOffset": [
-          1.2997678567916156,
-          0.1672309082469315,
-          -2.993426399419488e-14
+          2.3954581703267497,
+          0.46509228255740165,
+          -2.569507255270051e-14
         ],
         "target": [
           0,
@@ -100,12 +100,31 @@
       "imageMode": {},
       "followTf": "car"
     },
-    "virtual-joystick.Virtual Joystick!446nqyx": {
+    "virtual-joystick.Virtual Joystick!u1budv": {
       "topic": "/ihm2/alternative_target_controls",
-      "publishRate": 20,
-      "maxLinearSpeed": 500,
-      "maxAngularSpeed": 0.1,
-      "foxglovePanelTitle": "Joystick"
+      "publishRate": 10,
+      "maxLinearSpeed": 300,
+      "maxAngularSpeed": 0.2
+    },
+    "Teleop!34cxch6": {
+      "topic": "/ihm2/alternative_target_controls",
+      "publishRate": 1,
+      "upButton": {
+        "field": "linear-x",
+        "value": 100
+      },
+      "downButton": {
+        "field": "linear-x",
+        "value": -100
+      },
+      "leftButton": {
+        "field": "angular-z",
+        "value": 1
+      },
+      "rightButton": {
+        "field": "angular-z",
+        "value": -1
+      }
     },
     "CallService!1zs06v0": {
       "requestPayload": "{}",
@@ -113,15 +132,17 @@
       "foxglovePanelTitle": "reset",
       "serviceName": "/ihm2/reset",
       "buttonText": "reset sim",
-      "buttonTooltip": "reset baby",
+      "buttonTooltip": "reset this baby",
       "buttonColor": "#c32e2e"
     },
     "CallService!10mxkor": {
       "requestPayload": "{}",
       "layout": "horizontal",
       "buttonText": "publish cones",
-      "serviceName": "/ihm2/publish_cones",
-      "foxglovePanelTitle": "publish cones"
+      "serviceName": "/ihm2/publish_cones_markers",
+      "foxglovePanelTitle": "publish cones",
+      "buttonTooltip": "publish these cones",
+      "buttonColor": "#1b9300"
     },
     "DiagnosticStatusPanel!m945yo": {
       "topicToRender": "/ihm2/diag/sim",
@@ -144,7 +165,7 @@
       ],
       "showXAxisLabels": true,
       "showYAxisLabels": true,
-      "showLegend": false,
+      "showLegend": true,
       "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "isSynced": true,
@@ -171,7 +192,7 @@
       ],
       "showXAxisLabels": true,
       "showYAxisLabels": true,
-      "showLegend": false,
+      "showLegend": true,
       "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "isSynced": true,
@@ -183,20 +204,20 @@
     "Plot!2bhy01b": {
       "paths": [
         {
-          "value": "/ihm2/velocity.twist.linear.x",
+          "value": "/ihm2/vel.twist.linear.x",
           "enabled": true,
           "timestampMethod": "headerStamp",
           "label": "v_x"
         },
         {
           "timestampMethod": "headerStamp",
-          "value": "/ihm2/velocity.twist.linear.y",
+          "value": "/ihm2/vel.twist.linear.y",
           "enabled": true,
           "label": "v_y"
         },
         {
           "timestampMethod": "headerStamp",
-          "value": "/ihm2/velocity.twist.angular.z",
+          "value": "/ihm2/vel.twist.angular.z",
           "enabled": true,
           "label": "r"
         }
@@ -209,7 +230,7 @@
       "isSynced": true,
       "xAxisVal": "timestamp",
       "sidebarDimension": 240,
-      "followingViewWidth": 13,
+      "followingViewWidth": 10,
       "foxglovePanelTitle": "velocity"
     },
     "TopicGraph!1mts4d4": {},
@@ -223,22 +244,24 @@
               "first": "3D!3mfo4f7",
               "second": {
                 "first": {
-                  "first": "virtual-joystick.Virtual Joystick!446nqyx",
+                  "first": {
+                    "first": "virtual-joystick.Virtual Joystick!u1budv",
+                    "second": "Teleop!34cxch6",
+                    "direction": "column"
+                  },
                   "second": {
                     "first": "CallService!1zs06v0",
                     "second": "CallService!10mxkor",
-                    "direction": "column",
-                    "splitPercentage": 49.230769230769226
+                    "direction": "column"
                   },
-                  "direction": "row",
-                  "splitPercentage": 65.98639455782313
+                  "direction": "row"
                 },
                 "second": "DiagnosticStatusPanel!m945yo",
                 "direction": "column",
                 "splitPercentage": 60.27820710973724
               },
               "direction": "row",
-              "splitPercentage": 43.12925170068027
+              "splitPercentage": 50.7482993197279
             },
             "second": {
               "first": {

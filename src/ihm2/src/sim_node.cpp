@@ -183,21 +183,24 @@ private:
             u[i] = 0.0;
         }
         // create string containing new values of x and u
-        std::string msg = "Reset simulation to x=[";
+        std::stringstream ss;
+        ss << std::fixed << std::setprecision(3);
+        ss << "Reset simulation to x=[";
         for (size_t i = 0; i < nx; i++) {
-            msg += std::to_string(x[i]);
+            ss << x[i];
             if (i < nx - 1) {
-                msg += ", ";
+                ss << ", ";
             }
         }
-        msg += "] and u=[";
+        ss << "] and u=[";
         for (size_t i = 0; i < nu; i++) {
-            msg += std::to_string(u[i]);
+            ss << u[i];
             if (i < nu - 1) {
-                msg += ", ";
+                ss << ", ";
             }
         }
-        RCLCPP_INFO(this->get_logger(), msg.c_str());
+        ss << "]";
+        RCLCPP_INFO(this->get_logger(), "%s", ss.str().c_str());
     }
 
     void sim_timer_cb() {
@@ -257,7 +260,7 @@ private:
         }
 
         // prohibit the car from going backwards
-        if (x[3] < 0.0) {
+        if (x[3] < 0.0 or (x[nx - 2] <= 0.1 and x[3] < 0.01)) {
             x[3] = 0.0;
             x[4] = 0.0;
             x[5] = 0.0;
@@ -413,7 +416,7 @@ public:
         // publishers
         this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz/sim", 10);
         this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("/ihm2/pose", 10);
-        this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/velocity", 10);
+        this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/vel", 10);
         this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag/sim", 10);
         this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/current_controls", 10);
         this->tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);
@@ -443,7 +446,7 @@ public:
                         std::placeholders::_1,
                         std::placeholders::_2));
         this->publish_cones_srv = this->create_service<std_srvs::srv::Empty>(
-                "/ihm2/publish_cones",
+                "/ihm2/publish_cones_markers",
                 std::bind(
                         &SimNode::publish_cones_srv_cb,
                         this,
@@ -452,6 +455,9 @@ public:
 
         // load cones from track file and create the markers for the cones
         this->create_cones_markers(this->get_parameter("track_name_or_file").as_string());
+
+        // call once the the publish cones service
+        this->publish_cones_srv_cb(nullptr, nullptr);
 
         // create a timer for the simulation loop (one simulation step and publishing the car mesh)
         this->sim_timer = this->create_wall_timer(

@@ -115,7 +115,19 @@
         "variant": "cpp",
         "algorithm": "cpp",
         "*.ipp": "cpp",
-        "format": "c"
+        "format": "c",
+        "bit": "cpp",
+        "*.tcc": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "iterator": "cpp",
+        "memory_resource": "cpp",
+        "numeric": "cpp",
+        "random": "cpp",
+        "utility": "cpp",
+        "stop_token": "cpp",
+        "cinttypes": "cpp",
+        "*.inc": "cpp"
     },
     "[cpp]": {
         "editor.wordBasedSuggestions": false,

@@ -95,6 +95,14 @@ target_include_directories(sim_node PUBLIC
   "generated/ihm2_dyn6_sim_gen_code"
   "generated/ihm2_dyn6_sim_gen_code/ihm2_dyn6_model"
 )
+
+# stanley control node
+ament_auto_add_executable(stanley_control_node src/stanley_control_node.cpp)
+target_link_libraries(stanley_control_node
+  "${cpp_typesupport_target}" # for custom message and service types defined in this package
+  ihm2_common # ihm2 common library
+)
+
 # generate control node
 # find_library(IHM2_FKIN4_OCP_LIB acados_ocp_solver_ihm2_fkin4 PATHS ihm2_ocp_gen_code)
 # message(STATUS " IHM2_FKIN4_OCP_LIB: ${IHM2_FKIN4_OCP_LIB} ")

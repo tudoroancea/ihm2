@@ -151,7 +151,7 @@ private:
                     this->get_parameter("T_min").as_double(),
                     this->get_parameter("T_max").as_double());
             u[1] = clip(
-                    u[1],
+                    msg->steering,
                     this->get_parameter("delta_min").as_double(),
                     this->get_parameter("delta_max").as_double());
         }
@@ -319,7 +319,6 @@ private:
         diag_msg.header.stamp = this->now();
         diag_msg.status.resize(1);
         diag_msg.status[0].name = "sim";
-        diag_msg.status[0].hardware_id = "sim";
         diag_msg.status[0].level = diagnostic_msgs::msg::DiagnosticStatus::OK;
         diag_msg.status[0].message = "OK";
 

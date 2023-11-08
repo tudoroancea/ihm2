@@ -1,6 +1,7 @@
 // Copyright (c) 2023. Tudor Oancea
 #include "ihm2/common/tracks.hpp"
 #include "ihm2/common/math.hpp"
+#include "ihm2/external/icecream.hpp"
 #include "ihm2/external/rapidcsv.hpp"
 #include <cmath>
 #include <filesystem>
@@ -227,7 +228,13 @@ void Track::project(
     size_t id_min, id_prev, id_next;
     sqdist.minCoeff(&id_min);
     id_prev = id_min - 1;
+    if (id_min == 0) {
+        id_prev = local_traj.rows() - 1;
+    }
     id_next = id_min + 1;
+    if (id_min == local_traj.rows() - 1) {
+        id_next = 0;
+    }
     // TODO: what happens if id_min == 0 or id_min == local_traj.rows() - 1 ?
     // This should not happen though
 
@@ -253,9 +260,15 @@ void Track::project(
     double lambda = ((car_pos(0) - a(0)) * dx + (car_pos(1) - a(1)) * dy) / (dx * dx + dy * dy);
 
     // compute the interpolated values (with non null pointers) at lambda using the index of the closest point
-    *s_proj = sa + lambda * (sb - sa);
-    *X_ref_proj = a(0) + lambda * (b(0) - a(0));
-    *Y_ref_proj = a(1) + lambda * (b(1) - a(1));
+    if (s_proj != nullptr) {
+        *s_proj = sa + lambda * (sb - sa);
+    }
+    if (X_ref_proj != nullptr) {
+        *X_ref_proj = a(0) + lambda * (b(0) - a(0));
+    }
+    if (Y_ref_proj != nullptr) {
+        *Y_ref_proj = a(1) + lambda * (b(1) - a(1));
+    }
     if (phi_ref_proj != nullptr) {
         interp(coeffs_phi, *s_proj, *phi_ref_proj, id_min + id_low);
     }

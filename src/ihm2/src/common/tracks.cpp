@@ -212,11 +212,11 @@ void Track::project(
     // extract all the points in X_ref, Y_ref associated with s_ref values within s_guess +- s_tol
     double s_low = std::max(s_guess - s_tol, s_ref(0)),
            s_up = std::min(s_guess + s_tol, s_ref(s_ref.size() - 1));
-    size_t id_low = locate_index(s_ref, s_low), id_up = locate_index(s_ref, s_up);
+    long long id_low = locate_index(s_ref, s_low), id_up = locate_index(s_ref, s_up);
     if (id_low > 0) {
         --id_low;
     }
-    if (id_up < s_ref.size() - 1) {
+    if (id_up < static_cast<long long>(s_ref.size()) - 1) {
         ++id_up;
     }
     Eigen::ArrayX2d local_traj = Eigen::ArrayX2d::Zero(id_up - id_low + 1, 2);  // problem with difference of size_ints ?
@@ -225,14 +225,14 @@ void Track::project(
 
     // find the closest point to car_pos to find one segment extremity
     Eigen::VectorXd sqdist = (local_traj.col(0) - car_pos(0)).square() + (local_traj.col(1) - car_pos(1)).square();
-    size_t id_min, id_prev, id_next;
+    long long id_min, id_prev, id_next;
     sqdist.minCoeff(&id_min);
     id_prev = id_min - 1;
     if (id_min == 0) {
         id_prev = local_traj.rows() - 1;
     }
     id_next = id_min + 1;
-    if (id_min == local_traj.rows() - 1) {
+    if (id_min == static_cast<long long>(local_traj.rows()) - 1) {
         id_next = 0;
     }
     // TODO: what happens if id_min == 0 or id_min == local_traj.rows() - 1 ?

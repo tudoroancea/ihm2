@@ -2,13 +2,28 @@
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import odr
 import trajectory_planning_helpers as tph
 from icecream import ic
 from track_database import Track
 from track_database.utils import plot_cones
 
-from utils import unwrapToPi
+
+def teds_projection(x, a):
+    """Projection of x onto the interval [a, a + 2*pi)"""
+    return np.mod(x - a, 2 * np.pi) + a
+
+
+def wrapToPi(x):
+    """Wrap angles to [-pi, pi)"""
+    return teds_projection(x, -np.pi)
+
+
+def unwrapToPi(x):
+    # remove discontinuities caused by wrapToPi
+    diffs = np.diff(x)
+    diffs[diffs > 1.5 * np.pi] -= 2 * np.pi
+    diffs[diffs < -1.5 * np.pi] += 2 * np.pi
+    return np.insert(x[0] + np.cumsum(diffs), 0, x[0])
 
 
 def generate_track_file(
@@ -101,18 +116,31 @@ def generate_track_file(
             )
         ).T,
         delimiter=",",
-        header="s_ref,X_ref,Y_ref,phi_ref,kappa_ref,right_width,left_width",
         fmt="%.6f",
     )
+    # open csv file and add header
+    with open(outfile, "r") as f:
+        lines = f.readlines()
+        lines.insert(
+            0,
+            "s_ref,X_ref,Y_ref,phi_ref,kappa_ref,right_width,left_width\n",
+        )
+    with open(outfile, "w") as f:
+        f.writelines(lines)
 
     if plot:
         plt.show()
 
 
-if __name__ == "__main__":
+def main():
     for track_name in [
         "fsds_competition_1",
-        # "fsds_competition_2",
-        # "fsds_competition_3",
+        "fsds_competition_2",
+        "fsds_competition_3",
+        "autoX_Vaudoise_Sponso",
     ]:
-        generate_track_file(track_name)
+        generate_track_file(track_name, "src/ihm2/tracks/" + track_name + ".csv")
+
+
+if __name__ == "__main__":
+    main()

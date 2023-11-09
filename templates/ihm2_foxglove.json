@@ -3,13 +3,13 @@
     "3D!3mfo4f7": {
       "cameraState": {
         "perspective": true,
-        "distance": 14.736842105260395,
-        "phi": 79.19879457050257,
-        "thetaOffset": 86.84562398703426,
+        "distance": 13.999999999957666,
+        "phi": 69.31857779578385,
+        "thetaOffset": 89.29801458671838,
         "targetOffset": [
-          6.130445783696123,
-          0.7917793298367374,
-          -2.827399725460821e-14
+          2.3954581703267497,
+          0.46509228255740165,
+          -2.569507255270051e-14
         ],
         "target": [
           0,
@@ -58,6 +58,9 @@
         },
         "/ihm2/viz": {
           "visible": true
+        },
+        "/ihm2/viz/sim": {
+          "visible": true
         }
       },
       "layers": {
@@ -97,42 +100,65 @@
       "imageMode": {},
       "followTf": "car"
     },
-    "virtual-joystick.Virtual Joystick!446nqyx": {
-      "topic": "/ihm2/alternative_controls_target",
-      "publishRate": 20,
-      "maxLinearSpeed": 100,
-      "maxAngularSpeed": 0.5,
-      "foxglovePanelTitle": "Joystick"
+    "virtual-joystick.Virtual Joystick!u1budv": {
+      "topic": "/ihm2/alternative_target_controls",
+      "publishRate": 10,
+      "maxLinearSpeed": 300,
+      "maxAngularSpeed": 0.2
+    },
+    "Teleop!34cxch6": {
+      "topic": "/ihm2/alternative_target_controls",
+      "publishRate": 1,
+      "upButton": {
+        "field": "linear-x",
+        "value": 100
+      },
+      "downButton": {
+        "field": "linear-x",
+        "value": -100
+      },
+      "leftButton": {
+        "field": "angular-z",
+        "value": 1
+      },
+      "rightButton": {
+        "field": "angular-z",
+        "value": -1
+      }
     },
     "CallService!1zs06v0": {
       "requestPayload": "{}",
       "layout": "horizontal",
       "foxglovePanelTitle": "reset",
       "serviceName": "/ihm2/reset",
-      "buttonText": "reset sim"
+      "buttonText": "reset sim",
+      "buttonTooltip": "reset this baby",
+      "buttonColor": "#c32e2e"
     },
     "CallService!10mxkor": {
       "requestPayload": "{}",
       "layout": "horizontal",
       "buttonText": "publish cones",
-      "serviceName": "/ihm2/publish_cones",
-      "foxglovePanelTitle": "publish cones"
+      "serviceName": "/ihm2/publish_cones_markers",
+      "foxglovePanelTitle": "publish cones",
+      "buttonTooltip": "publish these cones",
+      "buttonColor": "#1b9300"
     },
-    "Parameters!2jspdz": {
-      "title": "Parameters",
-      "foxglovePanelTitle": ""
+    "DiagnosticStatusPanel!m945yo": {
+      "topicToRender": "/ihm2/diag/sim",
+      "selectedHardwareId": "sim"
     },
     "Plot!1xctq6s": {
       "paths": [
         {
-          "value": "/ihm2/controls.throttle",
+          "value": "/ihm2/current_controls.throttle",
           "enabled": true,
           "timestampMethod": "headerStamp",
           "label": "T"
         },
         {
           "timestampMethod": "headerStamp",
-          "value": "/ihm2/alternative_controls_target.linear.x",
+          "value": "/ihm2/alternative_target_controls.linear.x",
           "enabled": true,
           "label": "u_T"
         }
@@ -151,7 +177,7 @@
     "Plot!2sv84j4": {
       "paths": [
         {
-          "value": "/ihm2/controls.steering",
+          "value": "/ihm2/current_controls.steering",
           "enabled": true,
           "timestampMethod": "headerStamp",
           "showLine": true,
@@ -159,7 +185,7 @@
         },
         {
           "timestampMethod": "headerStamp",
-          "value": "/ihm2/alternative_controls_target.angular.z",
+          "value": "/ihm2/alternative_target_controls.angular.z",
           "enabled": true,
           "label": "u_delta"
         }
@@ -178,20 +204,20 @@
     "Plot!2bhy01b": {
       "paths": [
         {
-          "value": "/ihm2/velocity.twist.linear.x",
+          "value": "/ihm2/vel.twist.linear.x",
           "enabled": true,
           "timestampMethod": "headerStamp",
           "label": "v_x"
         },
         {
           "timestampMethod": "headerStamp",
-          "value": "/ihm2/velocity.twist.linear.y",
+          "value": "/ihm2/vel.twist.linear.y",
           "enabled": true,
           "label": "v_y"
         },
         {
           "timestampMethod": "headerStamp",
-          "value": "/ihm2/velocity.twist.angular.z",
+          "value": "/ihm2/vel.twist.angular.z",
           "enabled": true,
           "label": "r"
         }
@@ -204,7 +230,7 @@
       "isSynced": true,
       "xAxisVal": "timestamp",
       "sidebarDimension": 240,
-      "followingViewWidth": 13,
+      "followingViewWidth": 10,
       "foxglovePanelTitle": "velocity"
     },
     "TopicGraph!1mts4d4": {},
@@ -218,21 +244,24 @@
               "first": "3D!3mfo4f7",
               "second": {
                 "first": {
-                  "first": "virtual-joystick.Virtual Joystick!446nqyx",
+                  "first": {
+                    "first": "virtual-joystick.Virtual Joystick!u1budv",
+                    "second": "Teleop!34cxch6",
+                    "direction": "column"
+                  },
                   "second": {
                     "first": "CallService!1zs06v0",
                     "second": "CallService!10mxkor",
-                    "direction": "column",
-                    "splitPercentage": 49.230769230769226
+                    "direction": "column"
                   },
-                  "direction": "row",
-                  "splitPercentage": 65.98639455782313
+                  "direction": "row"
                 },
-                "second": "Parameters!2jspdz",
+                "second": "DiagnosticStatusPanel!m945yo",
                 "direction": "column",
                 "splitPercentage": 60.27820710973724
               },
-              "direction": "row"
+              "direction": "row",
+              "splitPercentage": 50.7482993197279
             },
             "second": {
               "first": {

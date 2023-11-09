@@ -54,13 +54,15 @@ public:
             const Eigen::Vector2d& car_pos,
             double s_guess,
             double s_tol,
-            double* s,
-            double* X_ref,
-            double* Y_ref,
-            double* phi_ref,
+            double* s = nullptr,
+            double* X_ref = nullptr,
+            double* Y_ref = nullptr,
+            double* phi_ref = nullptr,
             double* kappa_ref = nullptr,
             double* right_width = nullptr,
             double* left_width = nullptr);
+
+    double length() const;
 };
 
 

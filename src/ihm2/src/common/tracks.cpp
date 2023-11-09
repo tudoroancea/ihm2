@@ -1,6 +1,7 @@
 // Copyright (c) 2023. Tudor Oancea
 #include "ihm2/common/tracks.hpp"
 #include "ihm2/common/math.hpp"
+#include "ihm2/external/icecream.hpp"
 #include "ihm2/external/rapidcsv.hpp"
 #include <cmath>
 #include <filesystem>
@@ -211,11 +212,11 @@ void Track::project(
     // extract all the points in X_ref, Y_ref associated with s_ref values within s_guess +- s_tol
     double s_low = std::max(s_guess - s_tol, s_ref(0)),
            s_up = std::min(s_guess + s_tol, s_ref(s_ref.size() - 1));
-    size_t id_low = locate_index(s_ref, s_low), id_up = locate_index(s_ref, s_up);
+    long long id_low = locate_index(s_ref, s_low), id_up = locate_index(s_ref, s_up);
     if (id_low > 0) {
         --id_low;
     }
-    if (id_up < s_ref.size() - 1) {
+    if (id_up < static_cast<long long>(s_ref.size()) - 1) {
         ++id_up;
     }
     Eigen::ArrayX2d local_traj = Eigen::ArrayX2d::Zero(id_up - id_low + 1, 2);  // problem with difference of size_ints ?
@@ -224,10 +225,16 @@ void Track::project(
 
     // find the closest point to car_pos to find one segment extremity
     Eigen::VectorXd sqdist = (local_traj.col(0) - car_pos(0)).square() + (local_traj.col(1) - car_pos(1)).square();
-    size_t id_min, id_prev, id_next;
+    long long id_min, id_prev, id_next;
     sqdist.minCoeff(&id_min);
     id_prev = id_min - 1;
+    if (id_min == 0) {
+        id_prev = local_traj.rows() - 1;
+    }
     id_next = id_min + 1;
+    if (id_min == static_cast<long long>(local_traj.rows()) - 1) {
+        id_next = 0;
+    }
     // TODO: what happens if id_min == 0 or id_min == local_traj.rows() - 1 ?
     // This should not happen though
 
@@ -253,9 +260,15 @@ void Track::project(
     double lambda = ((car_pos(0) - a(0)) * dx + (car_pos(1) - a(1)) * dy) / (dx * dx + dy * dy);
 
     // compute the interpolated values (with non null pointers) at lambda using the index of the closest point
-    *s_proj = sa + lambda * (sb - sa);
-    *X_ref_proj = a(0) + lambda * (b(0) - a(0));
-    *Y_ref_proj = a(1) + lambda * (b(1) - a(1));
+    if (s_proj != nullptr) {
+        *s_proj = sa + lambda * (sb - sa);
+    }
+    if (X_ref_proj != nullptr) {
+        *X_ref_proj = a(0) + lambda * (b(0) - a(0));
+    }
+    if (Y_ref_proj != nullptr) {
+        *Y_ref_proj = a(1) + lambda * (b(1) - a(1));
+    }
     if (phi_ref_proj != nullptr) {
         interp(coeffs_phi, *s_proj, *phi_ref_proj, id_min + id_low);
     }
@@ -268,4 +281,8 @@ void Track::project(
     if (left_width_proj != nullptr) {
         interp(coeffs_left_width, *s_proj, *left_width_proj, id_min + id_low);
     }
+}
+
+double Track::length() const {
+    return -s_ref(0);
 }

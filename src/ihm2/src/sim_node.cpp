@@ -356,6 +356,27 @@ private:
         model_kv.value = use_kin6 ? "kin6" : "dyn6";
         diag_msg.status[0].values.push_back(model_kv);
 
+        // add wheel speeds in diagnostics
+        if (nx >= 10) {
+            double omega_FL(x[6]), omega_FR(x[7]), omega_RL(x[8]), omega_RR(x[9]);
+            diagnostic_msgs::msg::KeyValue omega_FL_kv;
+            omega_FL_kv.key = "omega_FL";
+            omega_FL_kv.value = std::to_string(omega_FL);
+            diag_msg.status[0].values.push_back(omega_FL_kv);
+            diagnostic_msgs::msg::KeyValue omega_FR_kv;
+            omega_FR_kv.key = "omega_FR";
+            omega_FR_kv.value = std::to_string(omega_FR);
+            diag_msg.status[0].values.push_back(omega_FR_kv);
+            diagnostic_msgs::msg::KeyValue omega_RL_kv;
+            omega_RL_kv.key = "omega_RL";
+            omega_RL_kv.value = std::to_string(omega_RL);
+            diag_msg.status[0].values.push_back(omega_RL_kv);
+            diagnostic_msgs::msg::KeyValue omega_RR_kv;
+            omega_RR_kv.key = "omega_RR";
+            omega_RR_kv.value = std::to_string(omega_RR);
+            diag_msg.status[0].values.push_back(omega_RR_kv);
+        }
+
         this->diag_pub->publish(diag_msg);
     }
 

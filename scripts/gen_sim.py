@@ -29,17 +29,13 @@ C_r0 = 297.030
 C_r1 = 16.665
 C_r2 = 0.6784
 # pacejka parameters
-B = 11.15
-C = 1.98
-D = 1.67
-E = 0.97
 b1s = -6.75e-6
 b2s = 1.35e-1
 b3s = 1.2e-3
 c1s = 1.86
 d1s = 1.12e-4
 d2s = 1.57
-e1s = --5.38e-6
+e1s = -5.38e-6
 e2s = 1.11e-2
 e3s = -4.26
 b1a = 3.79e1
@@ -49,6 +45,20 @@ d1a = -2.03e-4
 d2a = 1.77
 e1a = -2.24e-3
 e2a = 1.81
+
+static_weight = 0.5 * m * g * l_F / l
+BCDs = (b1s * static_weight**2 + b2s * static_weight) * np.exp(-b3s * static_weight)
+Cs = c1s
+Ds = d1s * static_weight + d2s
+Es = e1s * static_weight**2 + e2s * static_weight + e3s
+Bs = BCDs / (Cs * Ds)
+BCDa = b1a * np.sin(2 * np.arctan(static_weight / b2a))
+Ca = c1a
+Da = d1a * static_weight + d2a
+Ea = e1a * static_weight + e2a
+Ba = BCDa / (Ca * Da)
+ic(BCDs, Cs, Ds, Es, Bs, BCDa, Ca, Da, Ea, Ba)
+
 # wheel parameters
 R_w = 0.202  # wheel radius
 I_w = 0.3  # wheel inertia
@@ -85,6 +95,10 @@ def smooth_sgn(x: sym_t) -> sym_t:
 
 def smooth_dev(x: sym_t) -> sym_t:
     return x + 1e-6 * exp(-x * x)
+
+
+def smooth_abs(x: sym_t) -> sym_t:
+    return smooth_sgn(x) * x
 
 
 def gen_kin6_model() -> AcadosModel:
@@ -188,25 +202,25 @@ def gen_dyn6_model() -> AcadosModel:
     static_weight = 0.5 * m * g * l_F / l
     longitudinal_weight_transfer = 0.5 * m * a_x * z_CG / l
     lateral_weight_transfer = 0.5 * m * a_y * z_CG / a
-    F_z_FL = (
+    F_z_FL = -(
         static_weight
         - longitudinal_weight_transfer
         + lateral_weight_transfer
         + 0.25 * F_downforce
     )
-    F_z_FR = (
+    F_z_FR = -(
         static_weight
         - longitudinal_weight_transfer
         - lateral_weight_transfer
         + 0.25 * F_downforce
     )
-    F_z_RL = (
+    F_z_RL = -(
         static_weight
         + longitudinal_weight_transfer
         + lateral_weight_transfer
         + 0.25 * F_downforce
     )
-    F_z_RR = (
+    F_z_RR = -(
         static_weight
         + longitudinal_weight_transfer
         - lateral_weight_transfer
@@ -220,14 +234,22 @@ def gen_dyn6_model() -> AcadosModel:
     v_y_FR = v_y + l_F * r
     v_y_RL = v_y - l_R * r
     v_y_RR = v_y - l_R * r
-    alpha_FL = delta - atan2(smooth_dev(v_y_FL), smooth_dev(v_x_FL))
-    alpha_FR = delta - atan2(smooth_dev(v_y_FR), smooth_dev(v_x_FR))
-    alpha_RL = -atan2(smooth_dev(v_y_RL), smooth_dev(v_x_RL))
-    alpha_RR = -atan2(smooth_dev(v_y_RR), smooth_dev(v_x_RR))
-    mu_y_FL = D * sin(C * atan(B * alpha_FL - E * (B * alpha_FL - atan(B * alpha_FL))))
-    mu_y_FR = D * sin(C * atan(B * alpha_FR - E * (B * alpha_FR - atan(B * alpha_FR))))
-    mu_y_RL = D * sin(C * atan(B * alpha_RL - E * (B * alpha_RL - atan(B * alpha_RL))))
-    mu_y_RR = D * sin(C * atan(B * alpha_RR - E * (B * alpha_RR - atan(B * alpha_RR))))
+    alpha_FL = atan2(smooth_dev(v_y_FL), smooth_dev(v_x_FL)) - delta
+    alpha_FR = atan2(smooth_dev(v_y_FR), smooth_dev(v_x_FR)) - delta
+    alpha_RL = atan2(smooth_dev(v_y_RL), smooth_dev(v_x_RL))
+    alpha_RR = atan2(smooth_dev(v_y_RR), smooth_dev(v_x_RR))
+    mu_y_FL = Da * sin(
+        Ca * atan(Ba * alpha_FL - Ea * (Ba * alpha_FL - atan(Ba * alpha_FL)))
+    )
+    mu_y_FR = Da * sin(
+        Ca * atan(Ba * alpha_FR - Ea * (Ba * alpha_FR - atan(Ba * alpha_FR)))
+    )
+    mu_y_RL = Da * sin(
+        Ca * atan(Ba * alpha_RL - Ea * (Ba * alpha_RL - atan(Ba * alpha_RL)))
+    )
+    mu_y_RR = Da * sin(
+        Ca * atan(Ba * alpha_RR - Ea * (Ba * alpha_RR - atan(Ba * alpha_RR)))
+    )
     F_y_FL = F_z_FL * mu_y_FL
     F_y_FR = F_z_FR * mu_y_FR
     F_y_RL = F_z_RL * mu_y_RL
@@ -244,6 +266,7 @@ def gen_dyn6_model() -> AcadosModel:
             - (F_y_FR + F_y_FL) * sin(delta)
             + F_x_RR
             + F_x_RL
+            + F_drag
         ),
         m * a_y
         - (
@@ -295,10 +318,12 @@ def gen_dyn10_model() -> AcadosModel:
     x = vertcat(
         X, Y, phi, v_x, v_y, r, omega_FL, omega_FR, omega_RL, omega_RR, T, delta
     )
+
     # controls
     u_T = sym_t.sym("u_T")
     u_delta = sym_t.sym("u_delta")
     u = vertcat(u_T, u_delta)
+
     # states derivatives
     X_dot = sym_t.sym("X_dot")
     Y_dot = sym_t.sym("Y_dot")
@@ -330,91 +355,85 @@ def gen_dyn10_model() -> AcadosModel:
     a_x = v_x_dot - v_y * r
     a_y = v_y_dot + v_x * r
     F_drag = -C_r0 * tanh(1000 * v_x) + C_r1 * v_x + C_r2 * v_x * v_x
-    F_downforce = C_downforce * v_x * v_x
-    F_z_FL = (
-        0.5 * m * g * l_R / l
-        + 0.5 * m * a_y * z_CG / a
-        - 0.5 * m * a_x * z_CG / l
+    F_downforce = 0.5 * C_downforce * v_x * v_x
+    static_weight = 0.5 * m * g * l_F / l
+    longitudinal_weight_transfer = 0.5 * m * a_x * z_CG / l
+    lateral_weight_transfer = 0.5 * m * a_y * z_CG / a
+    F_z_FL = -(
+        static_weight
+        - longitudinal_weight_transfer
+        + lateral_weight_transfer
         + 0.25 * F_downforce
     )
-    F_z_FR = (
-        0.5 * m * g * l_R / l
-        - 0.5 * m * a_y * z_CG / a
-        - 0.5 * m * a_x * z_CG / l
+    F_z_FR = -(
+        static_weight
+        - longitudinal_weight_transfer
+        - lateral_weight_transfer
         + 0.25 * F_downforce
     )
-    F_z_RL = (
-        0.5 * m * g * l_F / l
-        + 0.5 * m * a_y * z_CG / a
-        + 0.5 * m * a_x * z_CG / l
+    F_z_RL = -(
+        static_weight
+        + longitudinal_weight_transfer
+        + lateral_weight_transfer
         + 0.25 * F_downforce
     )
-    F_z_RR = (
-        0.5 * m * g * l_F / l
-        - 0.5 * m * a_y * z_CG / a
-        + 0.5 * m * a_x * z_CG / l
+    F_z_RR = -(
+        static_weight
+        + longitudinal_weight_transfer
+        - lateral_weight_transfer
         + 0.25 * F_downforce
     )
-    F_z = {"FL": F_z_FL, "FR": F_z_FR, "RL": F_z_RL, "RR": F_z_RR}
-    omega = {"FL": omega_FL, "FR": omega_FR, "RL": omega_RL, "RR": omega_RR}
+    v_x_FL = v_x - 0.5 * a * r
+    v_x_FR = v_x + 0.5 * a * r
+    v_x_RL = v_x - 0.5 * b * r
+    v_x_RR = v_x + 0.5 * b * r
+    v_y_FL = v_y + l_F * r
+    v_y_FR = v_y + l_F * r
+    v_y_RL = v_y - l_R * r
+    v_y_RR = v_y - l_R * r
+    alpha_FL = atan2(v_y_FL, v_x_FL) - delta
+    alpha_FR = atan2(v_y_FR, v_x_FR) - delta
+    alpha_RL = atan2(v_y_RL, v_x_RL)
+    alpha_RR = atan2(v_y_RR, v_x_RR)
+    mu_lat_FL = Da * sin(
+        Ca * atan(Ba * alpha_FL - Ea * (Ba * alpha_FL - atan(Ba * alpha_FL)))
+    )
+    mu_lat_FR = Da * sin(
+        Ca * atan(Ba * alpha_FR - Ea * (Ba * alpha_FR - atan(Ba * alpha_FR)))
+    )
+    mu_lat_RL = Da * sin(
+        Ca * atan(Ba * alpha_RL - Ea * (Ba * alpha_RL - atan(Ba * alpha_RL)))
+    )
+    mu_lat_RR = Da * sin(
+        Ca * atan(Ba * alpha_RR - Ea * (Ba * alpha_RR - atan(Ba * alpha_RR)))
+    )
+    F_lat_star_FL = F_z_FL * mu_lat_FL
+    F_lat_star_FR = F_z_FR * mu_lat_FR
+    F_lat_star_RL = F_z_RL * mu_lat_RL
+    F_lat_star_RR = F_z_RR * mu_lat_RR
 
-    BCDs = {
-        k: (b1s * F_z[k] * F_z[k] + b2s * F_z[k]) * exp(-b3s * F_z[k])
-        for k in F_z.keys()
-    }
-    Cs = {k: c1s for k in F_z.keys()}
-    Ds = {k: d1s * F_z[k] + d2s for k in F_z.keys()}
-    Es = {k: e1s * F_z[k] * F_z[k] + e2s * F_z[k] + e3s for k in F_z.keys()}
-    Bs = {k: BCDs[k] / (Cs[k] * Ds[k]) for k in F_z.keys()}
-    BCDa = {k: b1a * sin(2 * atan(F_z[k] / b2a)) for k in F_z.keys()}
-    Ca = {k: c1a for k in F_z.keys()}
-    Da = {k: d1a * F_z[k] + d2a for k in F_z.keys()}
-    Ba = {k: BCDa[k] / (Ca[k] * Da[k]) for k in F_z.keys()}
-    Ea = {k: e1a * F_z[k] + e2a for k in F_z.keys()}
-    s = {k: omega[k] * R_w / v_x - 1.0 for k in omega.keys()}
-    F_lon_star = {
-        k: Ds[k]
-        * sin(Cs[k] * atan(Bs[k] * s[k] - Es[k] * (Bs[k] * s[k] - atan(Bs[k] * s[k]))))
-        for k in F_z.keys()
-    }
-    alpha = {
-        "FL": delta
-        - smooth_sgn(v_x - 0.5 * a * r)
-        * atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x - 0.5 * a * r)),
-        "FR": delta
-        - smooth_sgn(v_x + 0.5 * a * r)
-        * atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x + 0.5 * a * r)),
-        "RL": -smooth_sgn(v_x - 0.5 * b * r)
-        * atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x - 0.5 * b * r)),
-        "RR": -smooth_sgn(v_x + 0.5 * b * r)
-        * atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x + 0.5 * b * r)),
-    }
-    F_lat_star = {
-        k: Da[k]
-        * sin(Ca[k] * atan(Ba[k] * alpha[k] - Ea[k] * (Ba[k] * alpha[k] - atan(Ba[k]))))
-        for k in F_z.keys()
-    }
+    s_FL = omega_FL * R_w / v_x_FL - 1.0
+    s_FR = omega_FR * R_w / v_x_FR - 1.0
+    s_RL = omega_RL * R_w / v_x_RL - 1.0
+    s_RR = omega_RR * R_w / v_x_RR - 1.0
 
-    F_lon = {
-        k: fabs(s[k])
-        * F_lon_star[k]
-        / sqrt(s[k] * s[k] + tan(alpha[k]) * tan(alpha[k]))
-        for k in F_z.keys()
-    }
-    F_lon_FL = F_lon["FL"]
-    F_lon_FR = F_lon["FR"]
-    F_lon_RL = F_lon["RL"]
-    F_lon_RR = F_lon["RR"]
-    F_lat = {
-        k: fabs(tan(alpha[k]))
-        * F_lat_star[k]
-        / sqrt(alpha[k] * alpha[k] + tan(s[k]) * tan(s[k]))
-        for k in F_z.keys()
-    }
-    F_lat_FL = F_lat["FL"]
-    F_lat_FR = F_lat["FR"]
-    F_lat_RL = F_lat["RL"]
-    F_lat_RR = F_lat["RR"]
+    mu_lon_FL = Ds * sin(Cs * atan(Bs * s_FL - Es * (Bs * s_FL - atan(Bs * s_FL))))
+    mu_lon_FR = Ds * sin(Cs * atan(Bs * s_FR - Es * (Bs * s_FR - atan(Bs * s_FR))))
+    mu_lon_RL = Ds * sin(Cs * atan(Bs * s_RL - Es * (Bs * s_RL - atan(Bs * s_RL))))
+    mu_lon_RR = Ds * sin(Cs * atan(Bs * s_RR - Es * (Bs * s_RR - atan(Bs * s_RR))))
+    F_lon_star_FL = F_z_FL * mu_lon_FL
+    F_lon_star_FR = F_z_FR * mu_lon_FR
+    F_lon_star_RL = F_z_RL * mu_lon_RL
+    F_lon_star_RR = F_z_RR * mu_lon_RR
+
+    F_lon_FL = F_lon_star_FL * smooth_abs(s_FL) / hypot(s_FL, tan(alpha_FL))
+    F_lon_FR = F_lon_star_FR * smooth_abs(s_FR) / hypot(s_FR, tan(alpha_FR))
+    F_lon_RL = F_lon_star_RL * smooth_abs(s_RL) / hypot(s_RL, tan(alpha_RL))
+    F_lon_RR = F_lon_star_RR * smooth_abs(s_RR) / hypot(s_RR, tan(alpha_RR))
+    F_lat_FL = F_lat_star_FL * smooth_abs(tan(alpha_FL)) / hypot(s_FL, tan(alpha_FL))
+    F_lat_FR = F_lat_star_FR * smooth_abs(tan(alpha_FR)) / hypot(s_FR, tan(alpha_FR))
+    F_lat_RL = F_lat_star_RL * smooth_abs(tan(alpha_RL)) / hypot(s_RL, tan(alpha_RL))
+    F_lat_RR = F_lat_star_RR * smooth_abs(tan(alpha_RR)) / hypot(s_RR, tan(alpha_RR))
 
     f_impl_expr = vertcat(
         X_dot - v_x * cos(phi) + v_y * sin(phi),

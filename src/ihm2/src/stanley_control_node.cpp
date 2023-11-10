@@ -84,7 +84,9 @@ private:
         double* Xref = new double;
         double* Yref = new double;
         double* phi_ref = new double;
-        this->track->project(Eigen::Vector2d(X, Y), this->s_guess, 2.0, s, Xref, Yref, phi_ref);
+        double* phi_ref_preview = new double;
+        *phi_ref_preview = this->get_parameter("phi_ref_preview_distance").as_double();
+        this->track->project(Eigen::Vector2d(X, Y), this->s_guess, 2.0, s, Xref, Yref, phi_ref, phi_ref_preview);
         this->s_guess = std::fmod(*s + v_x * 0.01, this->track->length());
         // longitudinal control
         double epsilon = this->get_parameter("v_x_ref").as_double() - v_x, epsilon_integral = 0.0;

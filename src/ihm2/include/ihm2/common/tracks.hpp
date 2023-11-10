@@ -55,12 +55,13 @@ public:
             double s_guess,
             double s_tol,
             double* s = nullptr,
-            double* X_ref = nullptr,
-            double* Y_ref = nullptr,
-            double* phi_ref = nullptr,
-            double* kappa_ref = nullptr,
-            double* right_width = nullptr,
-            double* left_width = nullptr);
+            double* X_ref_proj = nullptr,
+            double* Y_ref_proj = nullptr,
+            double* phi_ref_proj = nullptr,
+            double* phi_ref_preview = nullptr,
+            double* kappa_ref_proj = nullptr,
+            double* right_width_proj = nullptr,
+            double* left_width_proj = nullptr);
 
     double length() const;
 };

@@ -128,7 +128,8 @@
         "stop_token": "cpp",
         "cinttypes": "cpp",
         "*.inc": "cpp",
-        "core": "cpp"
+        "core": "cpp",
+        "__memory": "cpp"
     },
     "[cpp]": {
         "editor.wordBasedSuggestions": false,

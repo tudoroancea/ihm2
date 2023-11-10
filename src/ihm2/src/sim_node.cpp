@@ -117,6 +117,35 @@ visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y,
     return marker;
 }
 
+Eigen::VectorXi mask_to_idx(Eigen::Array<bool, Eigen::Dynamic, 1> mask) {
+    Eigen::VectorXi idx(mask.count());
+    long long llIdx(0);
+    for (long long llI(0), llN(mask.size()); llI < llN; ++llI) {
+        if (mask(llI)) {
+            idx(llIdx) = llI;
+            ++llIdx;
+        }
+    }
+    return idx;
+}
+
+bool ccw(Eigen::Vector2d a, Eigen::Vector2d b, Eigen::Vector2d c) {
+    return (c(1) - a(1)) * (b(0) - a(0)) > (b(1) - a(1)) * (c(0) - a(0));
+}
+
+bool intersect(Eigen::Vector2d a, Eigen::Vector2d b, Eigen::Vector2d c, Eigen::Vector2d d) {
+    return ccw(a, c, d) != ccw(b, c, d) && ccw(a, b, c) != ccw(a, b, d);
+}
+
+template <typename Derived>
+Eigen::PermutationMatrix<Eigen::Dynamic> argsort(const Eigen::DenseBase<Derived>& vec) {
+    Eigen::PermutationMatrix<Eigen::Dynamic> perm(vec.size());
+    std::iota(perm.indices().data(), perm.indices().data() + perm.indices().size(), 0);
+    std::sort(perm.indices().data(), perm.indices().data() + perm.indices().size(),
+              [&](int i, int j) { return vec(i) < vec(j); });
+    return perm;
+}
+
 class FatalNodeError : public std::runtime_error {
 public:
     FatalNodeError(const std::string& what) : std::runtime_error(what) {}
@@ -156,7 +185,10 @@ private:
     geometry_msgs::msg::PoseStamped pose_msg;
     geometry_msgs::msg::TwistStamped vel_msg;
     geometry_msgs::msg::TransformStamped transform;
-    Eigen::MatrixX2d all_cones;
+    std::unordered_map<ConeColor, Eigen::MatrixX2d> cones_map;
+    Eigen::Vector2d last_pos, start_line_pos_1, start_line_pos_2;  // used for lap counting
+    double last_lap_time = 0.0, best_lap_time = 0.0;
+    rclcpp::Time last_lap_time_stamp = rclcpp::Time(0, 0);
 
     // acados sim solver variables
     void* kin6_sim_capsule;
@@ -283,6 +315,20 @@ private:
 
         auto end = this->now();
 
+        // check if we have completed a lap
+        Eigen::Vector2d pos(x[0], x[1]);
+        if (x[3] > 0.0 and intersect(this->start_line_pos_1, this->start_line_pos_2, this->last_pos, pos)) {
+            if (this->last_lap_time_stamp.nanoseconds() > 0) {
+                double lap_time((end - this->last_lap_time_stamp).seconds());
+                if (this->best_lap_time == 0.0 or lap_time < this->best_lap_time) {
+                    this->best_lap_time = lap_time;
+                }
+                this->last_lap_time = lap_time;
+                RCLCPP_INFO(this->get_logger(), "Lap completed time: %.3f s (best: %.3f s)", lap_time, this->best_lap_time);
+            }
+            this->last_lap_time_stamp = end;
+        }
+        this->last_pos = pos;
         // override the pose and velocity and controls with the simulation output
         this->pose_msg.header.stamp = this->now();
         this->pose_msg.header.frame_id = "world";
@@ -343,25 +389,116 @@ private:
         model_kv.value = use_kin6 ? "kin6" : "dyn6";
         diag_msg.status[0].values.push_back(model_kv);
 
+        diagnostic_msgs::msg::KeyValue last_lap_time_kv;
+        last_lap_time_kv.key = "last lap time (s)";
+        last_lap_time_kv.value = std::to_string(this->last_lap_time);
+        diag_msg.status[0].values.push_back(last_lap_time_kv);
+
+        diagnostic_msgs::msg::KeyValue best_lap_time_kv;
+        best_lap_time_kv.key = "best lap time (s)";
+        best_lap_time_kv.value = std::to_string(this->best_lap_time);
+        diag_msg.status[0].values.push_back(best_lap_time_kv);
+
+        // add wheel speeds in diagnostics
+        if (nx >= 10) {
+            double omega_FL(x[6]), omega_FR(x[7]), omega_RL(x[8]), omega_RR(x[9]);
+            diagnostic_msgs::msg::KeyValue omega_FL_kv;
+            omega_FL_kv.key = "omega_FL";
+            omega_FL_kv.value = std::to_string(omega_FL);
+            diag_msg.status[0].values.push_back(omega_FL_kv);
+            diagnostic_msgs::msg::KeyValue omega_FR_kv;
+            omega_FR_kv.key = "omega_FR";
+            omega_FR_kv.value = std::to_string(omega_FR);
+            diag_msg.status[0].values.push_back(omega_FR_kv);
+            diagnostic_msgs::msg::KeyValue omega_RL_kv;
+            omega_RL_kv.key = "omega_RL";
+            omega_RL_kv.value = std::to_string(omega_RL);
+            diag_msg.status[0].values.push_back(omega_RL_kv);
+            diagnostic_msgs::msg::KeyValue omega_RR_kv;
+            omega_RR_kv.key = "omega_RR";
+            omega_RR_kv.value = std::to_string(omega_RR);
+            diag_msg.status[0].values.push_back(omega_RR_kv);
+        }
+
         this->diag_pub->publish(diag_msg);
     }
-
 
     void publish_cones_observations_cb() {
         // get current position and yaw
         double X(x[0]), Y(x[1]), phi(x[2]);
-        Eigen::Vector2d pos(X, Y);
+
+        // get the cones for each color
+        Eigen::VectorXd rho_blue, theta_blue, rho_yellow, theta_yellow, rho_big_orange, theta_big_orange, rho_small_orange, theta_small_orange;
+        this->filter_cones(this->cones_map[ConeColor::BLUE], X, Y, phi, rho_blue, theta_blue);
+        this->filter_cones(this->cones_map[ConeColor::YELLOW], X, Y, phi, rho_yellow, theta_yellow);
+        this->filter_cones(this->cones_map[ConeColor::BIG_ORANGE], X, Y, phi, rho_big_orange, theta_big_orange);
+        this->filter_cones(this->cones_map[ConeColor::SMALL_ORANGE], X, Y, phi, rho_small_orange, theta_small_orange);
+        Eigen::VectorXd rho, theta;
+        rho.conservativeResize(rho_blue.size() + rho_yellow.size() + rho_big_orange.size() + rho_small_orange.size());
+        theta.conservativeResize(theta_blue.size() + theta_yellow.size() + theta_big_orange.size() + theta_small_orange.size());
+        rho << rho_blue, rho_yellow, rho_big_orange, rho_small_orange;
+        theta << theta_blue, theta_yellow, theta_big_orange, theta_small_orange;
+        std::vector<double> rhobis(rho.data(), rho.data() + rho.size()), thetabis(theta.data(), theta.data() + theta.size());
+        std::vector<std::uint8_t> colors;
+        colors.reserve(rho.size());
+        for (Eigen::Index i(0); i < rho_blue.size(); ++i) {
+            colors.push_back(static_cast<std::uint8_t>(ConeColor::BLUE));
+        }
+        for (Eigen::Index i(0); i < rho_yellow.size(); ++i) {
+            colors.push_back(static_cast<std::uint8_t>(ConeColor::YELLOW));
+        }
+        for (Eigen::Index i(0); i < rho_big_orange.size(); ++i) {
+            colors.push_back(static_cast<std::uint8_t>(ConeColor::BIG_ORANGE));
+        }
+        for (Eigen::Index i(0); i < rho_small_orange.size(); ++i) {
+            colors.push_back(static_cast<std::uint8_t>(ConeColor::SMALL_ORANGE));
+        }
+
+        ihm2::msg::ConesObservations cones_observations_msg;
+        cones_observations_msg.header.stamp = this->now();
+        cones_observations_msg.header.frame_id = "car";
+        cones_observations_msg.rho = rhobis;
+        cones_observations_msg.theta = thetabis;
+        cones_observations_msg.colors = colors;
+        cones_observations_msg.rho_uncertainty.resize(rho.size());
+        cones_observations_msg.theta_uncertainty.resize(theta.size());
+        cones_observations_msg.colors_confidence.resize(colors.size());
+
+        this->cones_observations_pub->publish(cones_observations_msg);
+    }
+
+    void filter_cones(
+            Eigen::MatrixX2d cones, double X, double Y, double phi,
+            Eigen::VectorXd& rho, Eigen::VectorXd& theta) {
         // get bearing and range limits
         std::vector<double> range_limits(this->get_parameter("range_limits").as_double_array()), bearing_limits(this->get_parameter("bearing_limits").as_double_array());
-        // compute thee postions of the cones relative to the car
-        // Eigen::MatrixX2d cartesian = this->all_cones.rowwise() - pos;
-        // Eigen::Rotation2Dd rot(phi);
-        // // apply rotation to the cones
-        // Eigen::MatrixX2d rotated = rot * cartesian.transpose();
+        // compute the postions of the cones relative to the car
+        Eigen::Vector2d pos(X, Y);
+        Eigen::MatrixX2d cartesian = cones.rowwise() - pos.transpose();
+        Eigen::Matrix2d rot;
+        rot << std::cos(phi), -std::sin(phi), std::sin(phi), std::cos(phi);
+        cartesian = cartesian * rot.transpose();
+        Eigen::MatrixX2d polar(cartesian.rows(), 2);
+        for (Eigen::Index i(0); i < cartesian.rows(); ++i) {
+            polar(i, 0) = cartesian.row(i).norm();
+            polar(i, 1) = std::atan2(cartesian(i, 1), cartesian(i, 0));
+        }
+        // only keep the cones that are in the range and bearing limits
+        Eigen::Array<bool, Eigen::Dynamic, 1> mask = (range_limits[0] <= polar.col(0).array()) && (polar.col(0).array() <= range_limits[1]) && (bearing_limits[0] <= polar.col(1).array()) && (polar.col(1).array() <= bearing_limits[1]);
+        size_t n_cones(mask.count());
+        rho.conservativeResize(n_cones);
+        theta.conservativeResize(n_cones);
+        for (Eigen::Index i(0), j(0); i < cones.rows(); ++i) {
+            if (mask(i)) {
+                rho(j) = polar(i, 0);
+                theta(j) = polar(i, 1);
+                ++j;
+            }
+        }
     }
+
     void create_cones_markers(const std::string& track_name_or_file) {
-        std::unordered_map<ConeColor, Eigen::MatrixX2d> cones_map = load_cones(track_name_or_file);
-        this->all_cones = Eigen::MatrixX2d::Zero(0, 2);
+        cones_map = load_cones(track_name_or_file);
 
         // set deleteall to all the markers in the cones_marker_array and publish it
         for (auto& marker : cones_marker_array.markers) {
@@ -371,8 +508,6 @@ private:
         // create new cones
         cones_marker_array.markers.clear();
         for (auto& [color, cones] : cones_map) {
-            this->all_cones.conservativeResize(this->all_cones.rows() + cones.rows(), 2);
-            this->all_cones.bottomRows(cones.rows()) = cones;
             for (int i = 0; i < cones.rows(); i++) {
                 cones_marker_array.markers.push_back(
                         get_cone_marker(
@@ -385,6 +520,18 @@ private:
             }
         }
         RCLCPP_INFO(this->get_logger(), "Loaded %lu cones from %s", cones_marker_array.markers.size(), track_name_or_file.c_str());
+        // if there are big orange cones, find the ones that have the smallest y coordinate and set them as start line
+        if (cones_map.find(ConeColor::BIG_ORANGE) != cones_map.end()) {
+            Eigen::MatrixX2d big_orange_cones(cones_map[ConeColor::BIG_ORANGE]);
+            if (big_orange_cones.rows() >= 2) {
+                // Find the indices that would sort the second column
+                Eigen::PermutationMatrix<Eigen::Dynamic> indices = argsort(big_orange_cones.col(1));
+                // Extract the corresponding rows
+                start_line_pos_1 = big_orange_cones.row(indices.indices()(0));
+                start_line_pos_2 = big_orange_cones.row(indices.indices()(1));
+                RCLCPP_INFO(this->get_logger(), "Found start line at (%.3f, %.3f) and (%.3f, %.3f)", start_line_pos_1(0), start_line_pos_1(1), start_line_pos_2(0), start_line_pos_2(1));
+            }
+        }
     }
 
 public:
@@ -441,7 +588,7 @@ public:
         this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz/sim", 10);
         this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("/ihm2/pose", 10);
         this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/vel", 10);
-        this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag/sim", 10);
+        this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag", 10);
         this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/current_controls", 10);
         this->cones_observations_pub = this->create_publisher<ihm2::msg::ConesObservations>("/ihm2/cones_observations", 10);
         this->tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);

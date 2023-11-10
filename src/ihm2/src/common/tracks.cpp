@@ -206,6 +206,7 @@ void Track::project(
         double* X_ref_proj,
         double* Y_ref_proj,
         double* phi_ref_proj,
+        double* phi_ref_preview,
         double* kappa_ref_proj,
         double* right_width_proj,
         double* left_width_proj) {
@@ -270,7 +271,11 @@ void Track::project(
         *Y_ref_proj = a(1) + lambda * (b(1) - a(1));
     }
     if (phi_ref_proj != nullptr) {
-        interp(coeffs_phi, *s_proj, *phi_ref_proj, id_min + id_low);
+        if (phi_ref_preview != nullptr) {
+            interp(coeffs_phi, *s_proj + *phi_ref_preview, *phi_ref_proj, id_min + id_low);
+        } else {
+            interp(coeffs_phi, *s_proj, *phi_ref_proj, id_min + id_low);
+        }
     }
     if (kappa_ref_proj != nullptr) {
         interp(coeffs_kappa, *s_proj, *kappa_ref_proj, id_min + id_low);

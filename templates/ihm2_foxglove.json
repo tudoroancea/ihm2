@@ -3,13 +3,13 @@
     "3D!3mfo4f7": {
       "cameraState": {
         "perspective": true,
-        "distance": 13.999999999957666,
-        "phi": 69.31857779578385,
-        "thetaOffset": 89.29801458671838,
+        "distance": 13.999999999875676,
+        "phi": 67.98831404912043,
+        "thetaOffset": 89.03849392825117,
         "targetOffset": [
-          2.3954581703267497,
-          0.46509228255740165,
-          -2.569507255270051e-14
+          1.9183234895207069,
+          -0.0753134626511992,
+          -3.142586395559547e-14
         ],
         "target": [
           0,
@@ -35,7 +35,7 @@
       },
       "transforms": {
         "frame:world": {
-          "visible": true
+          "visible": false
         },
         "frame:car": {
           "visible": false
@@ -54,13 +54,18 @@
           }
         },
         "/ihm2/pose": {
-          "visible": true
+          "visible": false
         },
         "/ihm2/viz": {
           "visible": true
         },
         "/ihm2/viz/sim": {
-          "visible": true
+          "visible": true,
+          "namespaces": {
+            "car": {
+              "visible": true
+            }
+          }
         }
       },
       "layers": {
@@ -100,53 +105,56 @@
       "imageMode": {},
       "followTf": "car"
     },
-    "virtual-joystick.Virtual Joystick!u1budv": {
+    "virtual-joystick.Virtual Joystick!zbad63": {
       "topic": "/ihm2/alternative_target_controls",
-      "publishRate": 10,
-      "maxLinearSpeed": 300,
-      "maxAngularSpeed": 0.2
-    },
-    "Teleop!34cxch6": {
-      "topic": "/ihm2/alternative_target_controls",
-      "publishRate": 1,
-      "upButton": {
-        "field": "linear-x",
-        "value": 100
-      },
-      "downButton": {
-        "field": "linear-x",
-        "value": -100
-      },
-      "leftButton": {
-        "field": "angular-z",
-        "value": 1
-      },
-      "rightButton": {
-        "field": "angular-z",
-        "value": -1
-      }
+      "publishRate": 100,
+      "maxLinearSpeed": 500,
+      "maxAngularSpeed": 0.3508
     },
     "CallService!1zs06v0": {
       "requestPayload": "{}",
       "layout": "horizontal",
       "foxglovePanelTitle": "reset",
       "serviceName": "/ihm2/reset",
-      "buttonText": "reset sim",
-      "buttonTooltip": "reset this baby",
+      "buttonText": "reset this bad boy",
+      "buttonTooltip": "",
       "buttonColor": "#c32e2e"
     },
     "CallService!10mxkor": {
       "requestPayload": "{}",
       "layout": "horizontal",
-      "buttonText": "publish cones",
+      "buttonText": "publish them cones",
       "serviceName": "/ihm2/publish_cones_markers",
       "foxglovePanelTitle": "publish cones",
-      "buttonTooltip": "publish these cones",
+      "buttonTooltip": "",
       "buttonColor": "#1b9300"
     },
-    "DiagnosticStatusPanel!m945yo": {
-      "topicToRender": "/ihm2/diag/sim",
-      "selectedHardwareId": "sim"
+    "DiagnosticSummary!1pbmf6s": {
+      "minLevel": 0,
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "topicToRender": "/ihm2/diag",
+      "sortByLevel": true
+    },
+    "DiagnosticStatusPanel!459gx5a": {
+      "topicToRender": "/ihm2/diag",
+      "selectedHardwareId": "",
+      "selectedName": "stanley_control",
+      "collapsedSections": []
+    },
+    "RawMessages!3h1bgsq": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/ihm2/diag.status[:]{hardware_id==\"\"}.values[:]{key==\"last lap time (s)\"}.value"
+    },
+    "RawMessages!2iawqr0": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/ihm2/diag.status[:]{hardware_id==\"\"}.values[:]{key==\"best lap time (s)\"}.value"
     },
     "Plot!1xctq6s": {
       "paths": [
@@ -161,11 +169,17 @@
           "value": "/ihm2/alternative_target_controls.linear.x",
           "enabled": true,
           "label": "u_T"
+        },
+        {
+          "timestampMethod": "headerStamp",
+          "value": "/ihm2/target_controls.throttle",
+          "enabled": true,
+          "label": "u_T"
         }
       ],
       "showXAxisLabels": true,
       "showYAxisLabels": true,
-      "showLegend": true,
+      "showLegend": false,
       "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "isSynced": true,
@@ -188,11 +202,17 @@
           "value": "/ihm2/alternative_target_controls.angular.z",
           "enabled": true,
           "label": "u_delta"
+        },
+        {
+          "timestampMethod": "headerStamp",
+          "value": "/ihm2/target_controls.steering",
+          "enabled": true,
+          "label": "u_delta"
         }
       ],
       "showXAxisLabels": true,
       "showYAxisLabels": true,
-      "showLegend": true,
+      "showLegend": false,
       "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "isSynced": true,
@@ -244,11 +264,7 @@
               "first": "3D!3mfo4f7",
               "second": {
                 "first": {
-                  "first": {
-                    "first": "virtual-joystick.Virtual Joystick!u1budv",
-                    "second": "Teleop!34cxch6",
-                    "direction": "column"
-                  },
+                  "first": "virtual-joystick.Virtual Joystick!zbad63",
                   "second": {
                     "first": "CallService!1zs06v0",
                     "second": "CallService!10mxkor",
@@ -256,9 +272,23 @@
                   },
                   "direction": "row"
                 },
-                "second": "DiagnosticStatusPanel!m945yo",
+                "second": {
+                  "direction": "row",
+                  "second": {
+                    "first": "RawMessages!3h1bgsq",
+                    "second": "RawMessages!2iawqr0",
+                    "direction": "column"
+                  },
+                  "first": {
+                    "first": "DiagnosticSummary!1pbmf6s",
+                    "second": "DiagnosticStatusPanel!459gx5a",
+                    "direction": "column",
+                    "splitPercentage": 31.186440677966075
+                  },
+                  "splitPercentage": 50.82872928176796
+                },
                 "direction": "column",
-                "splitPercentage": 60.27820710973724
+                "splitPercentage": 54.4049459041731
               },
               "direction": "row",
               "splitPercentage": 50.7482993197279

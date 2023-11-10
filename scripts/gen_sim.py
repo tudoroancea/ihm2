@@ -63,8 +63,8 @@ C_downforce = 3.96864
 
 
 # derived parameters
-C = l_R / (l_R + l_F)
-Ctilde = 1 / (l_R + l_F)
+C = l_R / l
+Ctilde = 1 / l
 
 # model bounds
 T_min = -1107.0
@@ -157,14 +157,23 @@ def gen_dyn6_model() -> AcadosModel:
     T = sym_t.sym("T")
     delta = sym_t.sym("delta")
     x = vertcat(X, Y, phi, v_x, v_y, r, T, delta)
+
     u_T = sym_t.sym("u_T")
     u_delta = sym_t.sym("u_delta")
     u = vertcat(u_T, u_delta)
-    xdot = sym_t.sym("xdot", x.shape)
 
-    # actuator dynamics
-    delta_dot = (u_delta - delta) / t_delta
-    T_dot = (u_T - T) / t_T
+    X_dot = sym_t.sym("X_dot")
+    Y_dot = sym_t.sym("Y_dot")
+    phi_dot = sym_t.sym("phi_dot")
+    v_x_dot = sym_t.sym("v_x_dot")
+    v_y_dot = sym_t.sym("v_y_dot")
+    r_dot = sym_t.sym("r_dot")
+    T_dot = sym_t.sym("T_dot")
+    delta_dot = sym_t.sym("delta_dot")
+    xdot = vertcat(X_dot, Y_dot, phi_dot, v_x_dot, v_y_dot, r_dot, T_dot, delta_dot)
+
+    a_x = v_x_dot - v_y * r
+    a_y = v_y_dot + v_x * r
 
     # longitudinal dynamics
     F_motor = C_m0 * T
@@ -173,8 +182,9 @@ def gen_dyn6_model() -> AcadosModel:
     F_Fx = 0.5 * F_motor
 
     # lateral dynamics
-    F_Rz = m * g * l_F / (l_R + l_F) + 0.5 * C_downforce * v_x * v_x
-    F_Fz = m * g * l_R / (l_R + l_F) + 0.5 * C_downforce * v_x * v_x
+    F_downforce = 0.5 * C_downforce * v_x * v_x
+    F_Rz = m * g * l_F / l + 0.5 * F_downforce + m * a_x * z_CG / l
+    F_Fz = m * g * l_R / l + 0.5 * F_downforce - m * a_x * z_CG / l
     alpha_R = -atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x))
     alpha_F = delta - atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x))
     mu_Ry = D * sin(C * atan(B * alpha_R - E * (B * alpha_R - atan(B * alpha_R))))
@@ -183,21 +193,20 @@ def gen_dyn6_model() -> AcadosModel:
     F_Fy = F_Fz * mu_Fy
 
     # complete dynamics
-    f_expl = vertcat(
-        v_x * cos(phi) - v_y * sin(phi),
-        v_x * sin(phi) + v_y * cos(phi),
-        r,
-        (F_Rx + F_Fx * cos(delta) - F_Fy * sin(delta)) / m + v_y * r,
-        (F_Ry + F_Fx * sin(delta) + F_Fy * cos(delta)) / m - v_x * r,
-        (l_F * (F_Fx * sin(delta) + F_Fy * cos(delta)) - l_R * F_Ry) / I_z,
-        T_dot,
-        delta_dot,
+    f_impl = vertcat(
+        X_dot - (v_x * cos(phi) - v_y * sin(phi)),
+        Y_dot - (v_x * sin(phi) + v_y * cos(phi)),
+        phi_dot - r,
+        m * a_x - (F_Rx + F_Fx * cos(delta) - F_Fy * sin(delta)),
+        m * a_y - (F_Ry + F_Fx * sin(delta) + F_Fy * cos(delta)),
+        I_z * r_dot - (l_F * (F_Fx * sin(delta) + F_Fy * cos(delta)) - l_R * F_Ry),
+        T_dot - (u_T - T) / t_T,
+        delta_dot - (u_delta - delta) / t_delta,
     )
 
     # create acados model
     model = AcadosModel()
-    model.f_expl_expr = f_expl
-    model.f_impl_expr = xdot - f_expl
+    model.f_impl_expr = f_impl
     model.x = x
     model.u = u
     model.xdot = xdot

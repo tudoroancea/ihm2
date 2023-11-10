@@ -178,28 +178,91 @@ def gen_dyn6_model() -> AcadosModel:
     # longitudinal dynamics
     F_motor = C_m0 * T
     F_drag = -(C_r0 + C_r1 * v_x + C_r2 * v_x * v_x) * tanh(1000 * v_x)
-    F_Rx = 0.5 * F_motor + F_drag
-    F_Fx = 0.5 * F_motor
+    F_x_FL = 0.25 * F_motor
+    F_x_FR = 0.25 * F_motor
+    F_x_RL = 0.25 * F_motor
+    F_x_RR = 0.25 * F_motor
 
     # lateral dynamics
     F_downforce = 0.5 * C_downforce * v_x * v_x
-    F_Rz = m * g * l_F / l + 0.5 * F_downforce + m * a_x * z_CG / l
-    F_Fz = m * g * l_R / l + 0.5 * F_downforce - m * a_x * z_CG / l
-    alpha_R = -atan2(smooth_dev(v_y - l_R * r), smooth_dev(v_x))
-    alpha_F = delta - atan2(smooth_dev(v_y + l_F * r), smooth_dev(v_x))
-    mu_Ry = D * sin(C * atan(B * alpha_R - E * (B * alpha_R - atan(B * alpha_R))))
-    mu_Fy = D * sin(C * atan(B * alpha_F - E * (B * alpha_F - atan(B * alpha_F))))
-    F_Ry = F_Rz * mu_Ry
-    F_Fy = F_Fz * mu_Fy
+    static_weight = 0.5 * m * g * l_F / l
+    longitudinal_weight_transfer = 0.5 * m * a_x * z_CG / l
+    lateral_weight_transfer = 0.5 * m * a_y * z_CG / a
+    F_z_FL = (
+        static_weight
+        - longitudinal_weight_transfer
+        + lateral_weight_transfer
+        + 0.25 * F_downforce
+    )
+    F_z_FR = (
+        static_weight
+        - longitudinal_weight_transfer
+        - lateral_weight_transfer
+        + 0.25 * F_downforce
+    )
+    F_z_RL = (
+        static_weight
+        + longitudinal_weight_transfer
+        + lateral_weight_transfer
+        + 0.25 * F_downforce
+    )
+    F_z_RR = (
+        static_weight
+        + longitudinal_weight_transfer
+        - lateral_weight_transfer
+        + 0.25 * F_downforce
+    )
+    v_x_FL = v_x - 0.5 * a * r
+    v_x_FR = v_x + 0.5 * a * r
+    v_x_RL = v_x - 0.5 * b * r
+    v_x_RR = v_x + 0.5 * b * r
+    v_y_FL = v_y + l_F * r
+    v_y_FR = v_y + l_F * r
+    v_y_RL = v_y - l_R * r
+    v_y_RR = v_y - l_R * r
+    alpha_FL = delta - atan2(smooth_dev(v_y_FL), smooth_dev(v_x_FL))
+    alpha_FR = delta - atan2(smooth_dev(v_y_FR), smooth_dev(v_x_FR))
+    alpha_RL = -atan2(smooth_dev(v_y_RL), smooth_dev(v_x_RL))
+    alpha_RR = -atan2(smooth_dev(v_y_RR), smooth_dev(v_x_RR))
+    mu_y_FL = D * sin(C * atan(B * alpha_FL - E * (B * alpha_FL - atan(B * alpha_FL))))
+    mu_y_FR = D * sin(C * atan(B * alpha_FR - E * (B * alpha_FR - atan(B * alpha_FR))))
+    mu_y_RL = D * sin(C * atan(B * alpha_RL - E * (B * alpha_RL - atan(B * alpha_RL))))
+    mu_y_RR = D * sin(C * atan(B * alpha_RR - E * (B * alpha_RR - atan(B * alpha_RR))))
+    F_y_FL = F_z_FL * mu_y_FL
+    F_y_FR = F_z_FR * mu_y_FR
+    F_y_RL = F_z_RL * mu_y_RL
+    F_y_RR = F_z_RR * mu_y_RR
 
     # complete dynamics
     f_impl = vertcat(
         X_dot - (v_x * cos(phi) - v_y * sin(phi)),
         Y_dot - (v_x * sin(phi) + v_y * cos(phi)),
         phi_dot - r,
-        m * a_x - (F_Rx + F_Fx * cos(delta) - F_Fy * sin(delta)),
-        m * a_y - (F_Ry + F_Fx * sin(delta) + F_Fy * cos(delta)),
-        I_z * r_dot - (l_F * (F_Fx * sin(delta) + F_Fy * cos(delta)) - l_R * F_Ry),
+        m * a_x
+        - (
+            (F_x_FR + F_x_FL) * cos(delta)
+            - (F_y_FR + F_y_FL) * sin(delta)
+            + F_x_RR
+            + F_x_RL
+        ),
+        m * a_y
+        - (
+            (F_x_FR + F_x_FL) * sin(delta)
+            + (F_y_FR + F_y_FL) * cos(delta)
+            + F_y_RR
+            + F_y_RL
+        ),
+        I_z * r_dot
+        - (
+            (F_x_FR * cos(delta) - F_y_FR * sin(delta)) * a / 2
+            + (F_x_FR * sin(delta) + F_y_FR * cos(delta)) * l_F
+            - (F_x_FL * cos(delta) - F_y_FL * sin(delta)) * a / 2
+            + (F_x_FL * sin(delta) + F_y_FL * cos(delta)) * l_F
+            + F_x_RR * b / 2
+            - F_y_RR * l_R
+            - F_x_RL * b / 2
+            - F_y_RL * l_R
+        ),
         T_dot - (u_T - T) / t_T,
         delta_dot - (u_delta - delta) / t_delta,
     )

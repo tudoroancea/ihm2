@@ -3,6 +3,7 @@
 #include "acados_c/sim_interface.h"
 #include "acados_sim_solver_ihm2_dyn6.h"
 #include "acados_sim_solver_ihm2_kin6.h"
+#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
@@ -19,6 +20,7 @@
 #include "ihm2/common/math.hpp"
 #include "ihm2/common/tracks.hpp"
 #include "ihm2/external/icecream.hpp"
+#include "ihm2/msg/cones_observations.hpp"
 #include "ihm2/msg/controls.hpp"
 #include "ihm2/srv/string.hpp"
 #include "nlohmann/json.hpp"
@@ -39,22 +41,43 @@
 
 using namespace std;
 
-visualization_msgs::msg::Marker get_car_marker(double X, double Y, double phi, [[maybe_unused]] bool mesh = true) {
-    visualization_msgs::msg::Marker marker;
-    marker.header.frame_id = "world";
-    marker.ns = "car";
-    marker.type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-    marker.action = visualization_msgs::msg::Marker::MODIFY;
-    marker.mesh_resource = "https://github.com/tudoroancea/ihm2/releases/download/lego-lrt4/lego-lrt4.stl";
-    marker.pose.position.x = X;
-    marker.pose.position.y = Y;
-    marker.pose.position.z = 0.0225;
-    marker.pose.orientation = rpy_to_quaternion(0.0, 0.0, M_PI_2 + phi);
-    marker.scale.x = 0.03;
-    marker.scale.y = 0.03;
-    marker.scale.z = 0.03;
-    marker.color = marker_colors("white");
-    return marker;
+std::vector<visualization_msgs::msg::Marker> get_car_markers(double X, double Y, double phi, double delta, std::string car_mesh = "gotthard.stl") {
+    std::vector<visualization_msgs::msg::Marker> markers(1);
+    markers[0].header.frame_id = "world";
+    markers[0].ns = "car";
+    markers[0].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+    markers[0].action = visualization_msgs::msg::Marker::MODIFY;
+    markers[0].mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/" + car_mesh;
+    markers[0].pose.position.x = X;
+    markers[0].pose.position.y = Y;
+    markers[0].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi);
+    markers[0].scale.x = 1.0;
+    markers[0].scale.y = 1.0;
+    markers[0].scale.z = 1.0;
+    markers[0].color = marker_colors("white");
+    if (car_mesh == "gotthard.stl") {
+        // add the 4 wheels at points (0.819, 0.6), (0.819, -0.6), (-0.711, 0.6), (-0.711, -0.6)
+        // and add a yaw of delta to the first two
+        markers.resize(5);
+        for (size_t i(1); i < 5; ++i) {
+            markers[i].header.frame_id = "world";
+            markers[i].ns = "car";
+            markers[i].id = i;
+            markers[i].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+            markers[i].mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/gotthard_wheel.stl";
+            markers[i].action = visualization_msgs::msg::Marker::MODIFY;
+            double wheel_x(i < 3 ? 0.819 : -0.711), wheel_y(i % 2 == 0 ? 0.6 : -0.6), wheel_phi(i < 3 ? delta : 0.0);
+            markers[i].pose.position.x = X + wheel_x * std::cos(phi) - wheel_y * std::sin(phi);
+            markers[i].pose.position.y = Y + wheel_x * std::sin(phi) + wheel_y * std::cos(phi);
+            markers[i].pose.position.z = 0.232;
+            markers[i].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi + wheel_phi);
+            markers[i].scale.x = 1.0;
+            markers[i].scale.y = 1.0;
+            markers[i].scale.z = 1.0;
+            markers[i].color = marker_colors("black");
+        }
+    }
+    return markers;
 }
 
 visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y, std::string color, bool small, bool mesh = true) {
@@ -65,13 +88,13 @@ visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y,
     marker.action = visualization_msgs::msg::Marker::MODIFY;
     if (mesh) {
         marker.type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-        marker.mesh_resource = "https://github.com/tudoroancea/ihm2/releases/download/lego-lrt4/cone.stl";
-        marker.scale.x = 0.001;
-        marker.scale.y = 0.001;
-        marker.scale.z = 0.001;
+        marker.mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/cone.stl";
+        marker.scale.x = 1.0;
+        marker.scale.y = 1.0;
+        marker.scale.z = 1.0;
         marker.pose.position.x = X;
         marker.pose.position.y = Y;
-        marker.pose.orientation = rpy_to_quaternion(-M_PI_2, 0.0, 0.0);
+        marker.pose.orientation = rpy_to_quaternion(0.0, 0.0, 0.0);
         if (!small) {
             marker.scale.z *= (285.0 / 228.0);
             marker.scale.x *= (285.0 / 228.0);
@@ -111,6 +134,7 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub;
     rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
+    rclcpp::Publisher<ihm2::msg::ConesObservations>::SharedPtr cones_observations_pub;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
@@ -127,10 +151,12 @@ private:
     double* u;
     size_t nx, nu;
     rclcpp::TimerBase::SharedPtr sim_timer;
+    rclcpp::TimerBase::SharedPtr cones_observations_timer;
     visualization_msgs::msg::MarkerArray cones_marker_array;
     geometry_msgs::msg::PoseStamped pose_msg;
     geometry_msgs::msg::TwistStamped vel_msg;
     geometry_msgs::msg::TransformStamped transform;
+    Eigen::MatrixX2d all_cones;
 
     // acados sim solver variables
     void* kin6_sim_capsule;
@@ -288,7 +314,10 @@ private:
         this->controls_pub->publish(controls_msg);
 
         visualization_msgs::msg::MarkerArray markers_msg;
-        markers_msg.markers.push_back(get_car_marker(x[0], x[1], x[2], this->get_parameter("use_meshes").as_bool()));
+        std::vector<visualization_msgs::msg::Marker> car_markers = get_car_markers(x[0], x[1], x[2], x[nx - 1], this->get_parameter("car_mesh").as_string());
+        for (const auto& marker : car_markers) {
+            markers_msg.markers.push_back(marker);
+        }
         this->viz_pub->publish(markers_msg);
 
         // publish diagnostics
@@ -317,8 +346,23 @@ private:
         this->diag_pub->publish(diag_msg);
     }
 
+
+    void publish_cones_observations_cb() {
+        // get current position and yaw
+        double X(x[0]), Y(x[1]), phi(x[2]);
+        Eigen::Vector2d pos(X, Y);
+        // get bearing and range limits
+        std::vector<double> range_limits(this->get_parameter("range_limits").as_double_array()), bearing_limits(this->get_parameter("bearing_limits").as_double_array());
+        // compute thee postions of the cones relative to the car
+        // Eigen::MatrixX2d cartesian = this->all_cones.rowwise() - pos;
+        // Eigen::Rotation2Dd rot(phi);
+        // // apply rotation to the cones
+        // Eigen::MatrixX2d rotated = rot * cartesian.transpose();
+    }
     void create_cones_markers(const std::string& track_name_or_file) {
         std::unordered_map<ConeColor, Eigen::MatrixX2d> cones_map = load_cones(track_name_or_file);
+        this->all_cones = Eigen::MatrixX2d::Zero(0, 2);
+
         // set deleteall to all the markers in the cones_marker_array and publish it
         for (auto& marker : cones_marker_array.markers) {
             marker.action = visualization_msgs::msg::Marker::DELETEALL;
@@ -327,6 +371,8 @@ private:
         // create new cones
         cones_marker_array.markers.clear();
         for (auto& [color, cones] : cones_map) {
+            this->all_cones.conservativeResize(this->all_cones.rows() + cones.rows(), 2);
+            this->all_cones.bottomRows(cones.rows()) = cones;
             for (int i = 0; i < cones.rows(); i++) {
                 cones_marker_array.markers.push_back(
                         get_cone_marker(
@@ -358,6 +404,10 @@ public:
         this->declare_parameter<bool>("manual_control", true);
         this->declare_parameter<bool>("use_meshes", true);
         this->declare_parameter<double>("v_dyn", 3.0);
+        this->declare_parameter<double>("cones_observations_freq", 10.0);
+        this->declare_parameter<std::vector<double>>("range_limits", {0.0, 15.0});
+        this->declare_parameter<std::vector<double>>("bearing_limits", {-deg2rad(50.0), deg2rad(50.0)});
+        this->declare_parameter<std::string>("car_mesh", "gotthard.stl");
 
         // initialize x and u with zeros
         nx = IHM2_DYN6_NX;
@@ -393,6 +443,7 @@ public:
         this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/vel", 10);
         this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag/sim", 10);
         this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/current_controls", 10);
+        this->cones_observations_pub = this->create_publisher<ihm2::msg::ConesObservations>("/ihm2/cones_observations", 10);
         this->tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);
 
         // subscribers
@@ -438,6 +489,11 @@ public:
                 std::chrono::duration<double>(1.0 / 100.0),
                 std::bind(
                         &SimNode::sim_timer_cb,
+                        this));
+        this->cones_observations_timer = this->create_wall_timer(
+                std::chrono::duration<double>(1.0 / this->get_parameter("cones_observations_freq").as_double()),
+                std::bind(
+                        &SimNode::publish_cones_observations_cb,
                         this));
     }
 

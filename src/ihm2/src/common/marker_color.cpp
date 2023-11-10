@@ -48,6 +48,10 @@ std_msgs::msg::ColorRGBA marker_colors(const std::string& color) {
         color_msg.r = 0.25;
         color_msg.g = 0.25;
         color_msg.b = 0.25;
+    } else if (color == "black") {
+        color_msg.r = 0.0;
+        color_msg.g = 0.0;
+        color_msg.b = 0.0;
     } else {
         color_msg.r = 1.0;
         color_msg.g = 1.0;

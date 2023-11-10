@@ -48,6 +48,7 @@ add_compile_definitions(OCP_JSON_PATH=" ${CMAKE_CURRENT_SOURCE_DIR}/../../ihm2_o
 # generate custom message and service types
 set(msg_files
   "msg/Controls.msg"
+  "msg/ConesObservations.msg"
 )
 set(srv_files
   "srv/String.srv"
@@ -106,6 +107,10 @@ target_link_libraries(stanley_control_node
 # launch files
 install(DIRECTORY
   launch
+  DESTINATION share/${PROJECT_NAME}/
+)
+install(DIRECTORY
+  meshes
   DESTINATION share/${PROJECT_NAME}/
 )
 

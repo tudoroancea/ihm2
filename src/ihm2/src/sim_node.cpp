@@ -129,6 +129,22 @@ Eigen::VectorXi mask_to_idx(Eigen::Array<bool, Eigen::Dynamic, 1> mask) {
     return idx;
 }
 
+bool ccw(Eigen::Vector2d a, Eigen::Vector2d b, Eigen::Vector2d c) {
+    return (c(1) - a(1)) * (b(0) - a(0)) > (b(1) - a(1)) * (c(0) - a(0));
+}
+
+bool intersect(Eigen::Vector2d a, Eigen::Vector2d b, Eigen::Vector2d c, Eigen::Vector2d d) {
+    return ccw(a, c, d) != ccw(b, c, d) && ccw(a, b, c) != ccw(a, b, d);
+}
+
+template <typename Derived>
+Eigen::PermutationMatrix<Eigen::Dynamic> argsort(const Eigen::DenseBase<Derived>& vec) {
+    Eigen::PermutationMatrix<Eigen::Dynamic> perm(vec.size());
+    std::iota(perm.indices().data(), perm.indices().data() + perm.indices().size(), 0);
+    std::sort(perm.indices().data(), perm.indices().data() + perm.indices().size(),
+              [&](int i, int j) { return vec(i) < vec(j); });
+    return perm;
+}
 
 class FatalNodeError : public std::runtime_error {
 public:
@@ -170,6 +186,9 @@ private:
     geometry_msgs::msg::TwistStamped vel_msg;
     geometry_msgs::msg::TransformStamped transform;
     std::unordered_map<ConeColor, Eigen::MatrixX2d> cones_map;
+    Eigen::Vector2d last_pos, start_line_pos_1, start_line_pos_2;  // used for lap counting
+    double last_lap_time = 0.0, best_lap_time = 0.0;
+    rclcpp::Time last_lap_time_stamp = rclcpp::Time(0, 0);
 
     // acados sim solver variables
     void* kin6_sim_capsule;
@@ -296,6 +315,20 @@ private:
 
         auto end = this->now();
 
+        // check if we have completed a lap
+        Eigen::Vector2d pos(x[0], x[1]);
+        if (x[3] > 0.0 and intersect(this->start_line_pos_1, this->start_line_pos_2, this->last_pos, pos)) {
+            if (this->last_lap_time_stamp.nanoseconds() > 0) {
+                double lap_time((end - this->last_lap_time_stamp).seconds());
+                if (this->best_lap_time == 0.0 or lap_time < this->best_lap_time) {
+                    this->best_lap_time = lap_time;
+                }
+                this->last_lap_time = lap_time;
+                RCLCPP_INFO(this->get_logger(), "Lap completed time: %.3f s (best: %.3f s)", lap_time, this->best_lap_time);
+            }
+            this->last_lap_time_stamp = end;
+        }
+        this->last_pos = pos;
         // override the pose and velocity and controls with the simulation output
         this->pose_msg.header.stamp = this->now();
         this->pose_msg.header.frame_id = "world";
@@ -356,6 +389,16 @@ private:
         model_kv.value = use_kin6 ? "kin6" : "dyn6";
         diag_msg.status[0].values.push_back(model_kv);
 
+        diagnostic_msgs::msg::KeyValue last_lap_time_kv;
+        last_lap_time_kv.key = "last lap time (s)";
+        last_lap_time_kv.value = std::to_string(this->last_lap_time);
+        diag_msg.status[0].values.push_back(last_lap_time_kv);
+
+        diagnostic_msgs::msg::KeyValue best_lap_time_kv;
+        best_lap_time_kv.key = "best lap time (s)";
+        best_lap_time_kv.value = std::to_string(this->best_lap_time);
+        diag_msg.status[0].values.push_back(best_lap_time_kv);
+
         // add wheel speeds in diagnostics
         if (nx >= 10) {
             double omega_FL(x[6]), omega_FR(x[7]), omega_RL(x[8]), omega_RR(x[9]);
@@ -379,7 +422,6 @@ private:
 
         this->diag_pub->publish(diag_msg);
     }
-
 
     void publish_cones_observations_cb() {
         // get current position and yaw
@@ -478,6 +520,18 @@ private:
             }
         }
         RCLCPP_INFO(this->get_logger(), "Loaded %lu cones from %s", cones_marker_array.markers.size(), track_name_or_file.c_str());
+        // if there are big orange cones, find the ones that have the smallest y coordinate and set them as start line
+        if (cones_map.find(ConeColor::BIG_ORANGE) != cones_map.end()) {
+            Eigen::MatrixX2d big_orange_cones(cones_map[ConeColor::BIG_ORANGE]);
+            if (big_orange_cones.rows() >= 2) {
+                // Find the indices that would sort the second column
+                Eigen::PermutationMatrix<Eigen::Dynamic> indices = argsort(big_orange_cones.col(1));
+                // Extract the corresponding rows
+                start_line_pos_1 = big_orange_cones.row(indices.indices()(0));
+                start_line_pos_2 = big_orange_cones.row(indices.indices()(1));
+                RCLCPP_INFO(this->get_logger(), "Found start line at (%.3f, %.3f) and (%.3f, %.3f)", start_line_pos_1(0), start_line_pos_1(1), start_line_pos_2(0), start_line_pos_2(1));
+            }
+        }
     }
 
 public:
@@ -534,7 +588,7 @@ public:
         this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz/sim", 10);
         this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("/ihm2/pose", 10);
         this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/vel", 10);
-        this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag/sim", 10);
+        this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag", 10);
         this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/current_controls", 10);
         this->cones_observations_pub = this->create_publisher<ihm2::msg::ConesObservations>("/ihm2/cones_observations", 10);
         this->tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);

@@ -74,9 +74,6 @@ private:
             const geometry_msgs::msg::TwistStamped::ConstSharedPtr& vel_msg,
             [[maybe_unused]] const ihm2::msg::Controls::ConstSharedPtr& current_controls_msg) {
 
-        // RCLCPP_INFO(this->get_logger(), "pose: (%f, %f, %f)", pose_msg->pose.position.x, pose_msg->pose.position.y, tf2::getYaw(pose_msg->pose.orientation));
-        // RCLCPP_INFO(this->get_logger(), "vel: (%f, %f, %f)", vel_msg->twist.linear.x, vel_msg->twist.linear.y, vel_msg->twist.angular.z);
-
         auto start = this->now();
         double X(pose_msg->pose.position.x), Y(pose_msg->pose.position.y), phi(tf2::getYaw(pose_msg->pose.orientation)), v_x(vel_msg->twist.linear.x);
         // project the current position on the track
@@ -117,7 +114,7 @@ private:
         diagnostic_msgs::msg::DiagnosticArray diag_msg;
         diag_msg.header.stamp = this->now();
         diag_msg.status.resize(1);
-        diag_msg.status[0].name = "control";
+        diag_msg.status[0].name = "stanley_control";
         diag_msg.status[0].level = diagnostic_msgs::msg::DiagnosticStatus::OK;
         diag_msg.status[0].message = "OK";
 
@@ -163,7 +160,7 @@ public:
         // publishers
         // this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz/control", 10);
         this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/target_controls", 10);
-        this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag/stanley_control", 10);
+        this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag", 10);
 
         // subscribers
         this->pose_sub.subscribe(this, "/ihm2/pose");

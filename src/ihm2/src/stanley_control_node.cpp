@@ -33,8 +33,10 @@
 #include "tf2_ros/transform_broadcaster.h"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
+#include <deque>
 #include <fstream>
 #include <memory>
+#include <numeric>
 #include <unordered_map>
 
 
@@ -68,8 +70,10 @@ private:
 
     std::unique_ptr<Track> track;
     double s_guess = 0.0;
+    std::deque<double> last_epsilons;
 
-    void controls_callback(
+    void
+    controls_callback(
             const geometry_msgs::msg::PoseStamped::ConstSharedPtr& pose_msg,
             const geometry_msgs::msg::TwistStamped::ConstSharedPtr& vel_msg,
             [[maybe_unused]] const ihm2::msg::Controls::ConstSharedPtr& current_controls_msg) {
@@ -86,7 +90,22 @@ private:
         this->track->project(Eigen::Vector2d(X, Y), this->s_guess, 2.0, s, Xref, Yref, phi_ref, phi_ref_preview);
         this->s_guess = std::fmod(*s + v_x * 0.01, this->track->length());
         // longitudinal control
-        double epsilon = this->get_parameter("v_x_ref").as_double() - v_x, epsilon_integral = 0.0;
+        double epsilon = this->get_parameter("v_x_ref").as_double() - v_x;
+        this->last_epsilons.push_back(epsilon);
+        // compute intrgral error term
+        double epsilon_integral = 0.0;
+        if (last_epsilons.size() >= 2) {
+            epsilon_integral = std::accumulate(this->last_epsilons.begin(), this->last_epsilons.end(), 0.0);
+            epsilon_integral -= 0.5 * (this->last_epsilons.front() + this->last_epsilons.back());
+            epsilon_integral *= 0.01;  // TODO: assumes 100 Hz, should be parametrized
+            // anti-windup
+            epsilon_integral = clip(epsilon_integral, -this->get_parameter("epsilon_integral_max").as_double(), this->get_parameter("epsilon_integral_max").as_double());
+        }
+        // TODO: means 20s, assuming 100 Hz, should be parametrized
+        if (last_epsilons.size() > 2000) {
+            last_epsilons.pop_front();
+        }
+
         double T = clip(
                 this->get_parameter("k_P").as_double() * epsilon + this->get_parameter("k_I").as_double() * epsilon_integral,
                 -this->get_parameter("T_max").as_double(),
@@ -148,11 +167,12 @@ public:
         this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
         this->declare_parameter<double>("v_x_ref", 5.0);
         this->declare_parameter<double>("k_P", 90.0);
-        this->declare_parameter<double>("k_I", 0.0);
+        this->declare_parameter<double>("k_I", 10.0);
         this->declare_parameter<double>("k_psi", 1.7);
         this->declare_parameter<double>("k_e", 1.5);
         this->declare_parameter<double>("k_s", 3.0);
         this->declare_parameter<double>("phi_ref_preview_distance", 0.0);
+        this->declare_parameter<double>("epsilon_integral_max", 10.0);
         this->declare_parameter<double>("T_max", 100.0);
         this->declare_parameter<double>("delta_max", 0.5);
 

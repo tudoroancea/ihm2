@@ -22,7 +22,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 name="k_I",
-                default_value="0.0",
+                default_value="10.0",
             ),
             DeclareLaunchArgument(
                 name="k_psi",
@@ -60,6 +60,10 @@ def generate_launch_description():
                 name="phi_ref_preview_distance",
                 default_value="0.0",
             ),
+            DeclareLaunchArgument(
+                name="epsilon_integral_max",
+                default_value="10.0",
+            ),
             Node(
                 package="ihm2",
                 executable="stanley_control_node",
@@ -76,6 +80,9 @@ def generate_launch_description():
                         "delta_max": LaunchConfiguration("delta_max"),
                         "phi_ref_preview_distance": LaunchConfiguration(
                             "phi_ref_preview_distance"
+                        ),
+                        "epsilon_integral_max": LaunchConfiguration(
+                            "epsilon_integral_max"
                         ),
                         "v_x_ref": LaunchConfiguration("v_x_ref"),
                         "track_name_or_file": LaunchConfiguration("track_name_or_file"),

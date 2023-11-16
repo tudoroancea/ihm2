@@ -18,11 +18,9 @@
 #include "ihm2/common/cone_color.hpp"
 #include "ihm2/common/marker_color.hpp"
 #include "ihm2/common/math.hpp"
-#include "ihm2/common/tracks.hpp"
 #include "ihm2/external/icecream.hpp"
 #include "ihm2/msg/cones_observations.hpp"
 #include "ihm2/msg/controls.hpp"
-#include "ihm2/srv/string.hpp"
 #include "nlohmann/json.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -41,81 +39,6 @@
 
 using namespace std;
 
-std::vector<visualization_msgs::msg::Marker> get_car_markers(double X, double Y, double phi, double delta, std::string car_mesh = "gotthard.stl") {
-    std::vector<visualization_msgs::msg::Marker> markers(1);
-    markers[0].header.frame_id = "world";
-    markers[0].ns = "car";
-    markers[0].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-    markers[0].action = visualization_msgs::msg::Marker::MODIFY;
-    markers[0].mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/" + car_mesh;
-    markers[0].pose.position.x = X;
-    markers[0].pose.position.y = Y;
-    markers[0].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi);
-    markers[0].scale.x = 1.0;
-    markers[0].scale.y = 1.0;
-    markers[0].scale.z = 1.0;
-    markers[0].color = marker_colors("white");
-    if (car_mesh == "gotthard.stl") {
-        // add the 4 wheels at points (0.819, 0.6), (0.819, -0.6), (-0.711, 0.6), (-0.711, -0.6)
-        // and add a yaw of delta to the first two
-        markers.resize(5);
-        for (size_t i(1); i < 5; ++i) {
-            markers[i].header.frame_id = "world";
-            markers[i].ns = "car";
-            markers[i].id = i;
-            markers[i].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-            markers[i].mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/gotthard_wheel.stl";
-            markers[i].action = visualization_msgs::msg::Marker::MODIFY;
-            double wheel_x(i < 3 ? 0.819 : -0.711), wheel_y(i % 2 == 0 ? 0.6 : -0.6), wheel_phi(i < 3 ? delta : 0.0);
-            markers[i].pose.position.x = X + wheel_x * std::cos(phi) - wheel_y * std::sin(phi);
-            markers[i].pose.position.y = Y + wheel_x * std::sin(phi) + wheel_y * std::cos(phi);
-            markers[i].pose.position.z = 0.232;
-            markers[i].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi + wheel_phi);
-            markers[i].scale.x = 1.0;
-            markers[i].scale.y = 1.0;
-            markers[i].scale.z = 1.0;
-            markers[i].color = marker_colors("black");
-        }
-    }
-    return markers;
-}
-
-visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y, std::string color, bool small, bool mesh = true) {
-    visualization_msgs::msg::Marker marker;
-    marker.header.frame_id = "world";
-    marker.ns = color + "_cones";
-    marker.id = id;
-    marker.action = visualization_msgs::msg::Marker::MODIFY;
-    if (mesh) {
-        marker.type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-        marker.mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/cone.stl";
-        marker.scale.x = 1.0;
-        marker.scale.y = 1.0;
-        marker.scale.z = 1.0;
-        marker.pose.position.x = X;
-        marker.pose.position.y = Y;
-        marker.pose.orientation = rpy_to_quaternion(0.0, 0.0, 0.0);
-        if (!small) {
-            marker.scale.z *= (285.0 / 228.0);
-            marker.scale.x *= (285.0 / 228.0);
-            marker.scale.y *= (505.0 / 325.0);
-        }
-    } else {
-        marker.type = visualization_msgs::msg::Marker::ARROW;
-        marker.scale.x = 0.0;
-        marker.scale.y = small ? 0.228 : 0.285;
-        marker.scale.z = small ? 0.325 : 0.505;
-        marker.points.resize(2);
-        marker.points[0].x = X;
-        marker.points[0].y = Y;
-        marker.points[0].z = 0.0;
-        marker.points[1].x = X;
-        marker.points[1].y = Y;
-        marker.points[1].z = small ? 0.325 : 0.505;
-    }
-    marker.color = marker_colors(color);
-    return marker;
-}
 
 Eigen::VectorXi mask_to_idx(Eigen::Array<bool, Eigen::Dynamic, 1> mask) {
     Eigen::VectorXi idx(mask.count());
@@ -360,7 +283,7 @@ private:
         this->controls_pub->publish(controls_msg);
 
         visualization_msgs::msg::MarkerArray markers_msg;
-        std::vector<visualization_msgs::msg::Marker> car_markers = get_car_markers(x[0], x[1], x[2], x[nx - 1], this->get_parameter("car_mesh").as_string());
+        std::vector<visualization_msgs::msg::Marker> car_markers = get_car_markers();
         for (const auto& marker : car_markers) {
             markers_msg.markers.push_back(marker);
         }
@@ -510,7 +433,7 @@ private:
         for (auto& [color, cones] : cones_map) {
             for (int i = 0; i < cones.rows(); i++) {
                 cones_marker_array.markers.push_back(
-                        get_cone_marker(
+                        this->get_cone_marker(
                                 i,
                                 cones(i, 0),
                                 cones(i, 1),
@@ -532,6 +455,84 @@ private:
                 RCLCPP_INFO(this->get_logger(), "Found start line at (%.3f, %.3f) and (%.3f, %.3f)", start_line_pos_1(0), start_line_pos_1(1), start_line_pos_2(0), start_line_pos_2(1));
             }
         }
+    }
+
+    visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y, std::string color, bool small, bool mesh = true) {
+        visualization_msgs::msg::Marker marker;
+        marker.header.frame_id = "world";
+        marker.ns = color + "_cones";
+        marker.id = id;
+        marker.action = visualization_msgs::msg::Marker::MODIFY;
+        if (mesh) {
+            marker.type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+            marker.mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/cone.stl";
+            marker.scale.x = 1.0;
+            marker.scale.y = 1.0;
+            marker.scale.z = 1.0;
+            marker.pose.position.x = X;
+            marker.pose.position.y = Y;
+            marker.pose.orientation = rpy_to_quaternion(0.0, 0.0, 0.0);
+            if (!small) {
+                marker.scale.z *= (285.0 / 228.0);
+                marker.scale.x *= (285.0 / 228.0);
+                marker.scale.y *= (505.0 / 325.0);
+            }
+        } else {
+            marker.type = visualization_msgs::msg::Marker::ARROW;
+            marker.scale.x = 0.0;
+            marker.scale.y = small ? 0.228 : 0.285;
+            marker.scale.z = small ? 0.325 : 0.505;
+            marker.points.resize(2);
+            marker.points[0].x = X;
+            marker.points[0].y = Y;
+            marker.points[0].z = 0.0;
+            marker.points[1].x = X;
+            marker.points[1].y = Y;
+            marker.points[1].z = small ? 0.325 : 0.505;
+        }
+        marker.color = marker_colors(color);
+        return marker;
+    }
+
+    std::vector<visualization_msgs::msg::Marker> get_car_markers() {
+        double X = x[0], Y = x[1], phi = x[2], delta = x[nx - 1];
+        std::string car_mesh = this->get_parameter("car_mesh").as_string();
+        std::vector<visualization_msgs::msg::Marker> markers(1);
+        markers[0].header.frame_id = "world";
+        markers[0].ns = "car";
+        markers[0].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+        markers[0].action = visualization_msgs::msg::Marker::MODIFY;
+        markers[0].mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/" + car_mesh;
+        markers[0].pose.position.x = X;
+        markers[0].pose.position.y = Y;
+        markers[0].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi);
+        markers[0].scale.x = 1.0;
+        markers[0].scale.y = 1.0;
+        markers[0].scale.z = 1.0;
+        markers[0].color = marker_colors("white");
+        if (car_mesh == "gotthard.stl") {
+            // add the 4 wheels at points (0.819, 0.6), (0.819, -0.6), (-0.711, 0.6), (-0.711, -0.6)
+            // and add a yaw of delta to the first two
+            markers.resize(5);
+            for (size_t i(1); i < 5; ++i) {
+                markers[i].header.frame_id = "world";
+                markers[i].ns = "car";
+                markers[i].id = i;
+                markers[i].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+                markers[i].mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/gotthard_wheel.stl";
+                markers[i].action = visualization_msgs::msg::Marker::MODIFY;
+                double wheel_x(i < 3 ? 0.819 : -0.711), wheel_y(i % 2 == 0 ? 0.6 : -0.6), wheel_phi(i < 3 ? delta : 0.0);
+                markers[i].pose.position.x = X + wheel_x * std::cos(phi) - wheel_y * std::sin(phi);
+                markers[i].pose.position.y = Y + wheel_x * std::sin(phi) + wheel_y * std::cos(phi);
+                markers[i].pose.position.z = 0.232;
+                markers[i].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi + wheel_phi);
+                markers[i].scale.x = 1.0;
+                markers[i].scale.y = 1.0;
+                markers[i].scale.z = 1.0;
+                markers[i].color = marker_colors("black");
+            }
+        }
+        return markers;
     }
 
 public:

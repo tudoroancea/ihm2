@@ -19,7 +19,6 @@
 #include "ihm2/common/marker_color.hpp"
 #include "ihm2/common/math.hpp"
 #include "ihm2/external/icecream.hpp"
-#include "ihm2/msg/cones_observations.hpp"
 #include "ihm2/msg/controls.hpp"
 #include "nlohmann/json.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
@@ -86,7 +85,6 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub;
     rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
-    rclcpp::Publisher<ihm2::msg::ConesObservations>::SharedPtr cones_observations_pub;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
@@ -103,7 +101,6 @@ private:
     double* u;
     size_t nx, nu;
     rclcpp::TimerBase::SharedPtr sim_timer;
-    rclcpp::TimerBase::SharedPtr cones_observations_timer;
     visualization_msgs::msg::MarkerArray cones_marker_array;
     geometry_msgs::msg::PoseStamped pose_msg;
     geometry_msgs::msg::TwistStamped vel_msg;
@@ -346,50 +343,6 @@ private:
         this->diag_pub->publish(diag_msg);
     }
 
-    void publish_cones_observations_cb() {
-        // get current position and yaw
-        double X(x[0]), Y(x[1]), phi(x[2]);
-
-        // get the cones for each color
-        Eigen::VectorXd rho_blue, theta_blue, rho_yellow, theta_yellow, rho_big_orange, theta_big_orange, rho_small_orange, theta_small_orange;
-        this->filter_cones(this->cones_map[ConeColor::BLUE], X, Y, phi, rho_blue, theta_blue);
-        this->filter_cones(this->cones_map[ConeColor::YELLOW], X, Y, phi, rho_yellow, theta_yellow);
-        this->filter_cones(this->cones_map[ConeColor::BIG_ORANGE], X, Y, phi, rho_big_orange, theta_big_orange);
-        this->filter_cones(this->cones_map[ConeColor::SMALL_ORANGE], X, Y, phi, rho_small_orange, theta_small_orange);
-        Eigen::VectorXd rho, theta;
-        rho.conservativeResize(rho_blue.size() + rho_yellow.size() + rho_big_orange.size() + rho_small_orange.size());
-        theta.conservativeResize(theta_blue.size() + theta_yellow.size() + theta_big_orange.size() + theta_small_orange.size());
-        rho << rho_blue, rho_yellow, rho_big_orange, rho_small_orange;
-        theta << theta_blue, theta_yellow, theta_big_orange, theta_small_orange;
-        std::vector<double> rhobis(rho.data(), rho.data() + rho.size()), thetabis(theta.data(), theta.data() + theta.size());
-        std::vector<std::uint8_t> colors;
-        colors.reserve(rho.size());
-        for (Eigen::Index i(0); i < rho_blue.size(); ++i) {
-            colors.push_back(static_cast<std::uint8_t>(ConeColor::BLUE));
-        }
-        for (Eigen::Index i(0); i < rho_yellow.size(); ++i) {
-            colors.push_back(static_cast<std::uint8_t>(ConeColor::YELLOW));
-        }
-        for (Eigen::Index i(0); i < rho_big_orange.size(); ++i) {
-            colors.push_back(static_cast<std::uint8_t>(ConeColor::BIG_ORANGE));
-        }
-        for (Eigen::Index i(0); i < rho_small_orange.size(); ++i) {
-            colors.push_back(static_cast<std::uint8_t>(ConeColor::SMALL_ORANGE));
-        }
-
-        ihm2::msg::ConesObservations cones_observations_msg;
-        cones_observations_msg.header.stamp = this->now();
-        cones_observations_msg.header.frame_id = "car";
-        cones_observations_msg.rho = rhobis;
-        cones_observations_msg.theta = thetabis;
-        cones_observations_msg.colors = colors;
-        cones_observations_msg.rho_uncertainty.resize(rho.size());
-        cones_observations_msg.theta_uncertainty.resize(theta.size());
-        cones_observations_msg.colors_confidence.resize(colors.size());
-
-        this->cones_observations_pub->publish(cones_observations_msg);
-    }
-
     void filter_cones(
             Eigen::MatrixX2d cones, double X, double Y, double phi,
             Eigen::VectorXd& rho, Eigen::VectorXd& theta) {
@@ -552,7 +505,6 @@ public:
         this->declare_parameter<bool>("manual_control", true);
         this->declare_parameter<bool>("use_meshes", true);
         this->declare_parameter<double>("v_dyn", 3.0);
-        this->declare_parameter<double>("cones_observations_freq", 10.0);
         this->declare_parameter<std::vector<double>>("range_limits", {0.0, 15.0});
         this->declare_parameter<std::vector<double>>("bearing_limits", {-deg2rad(50.0), deg2rad(50.0)});
         this->declare_parameter<std::string>("car_mesh", "gotthard.stl");
@@ -591,7 +543,6 @@ public:
         this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/vel", 10);
         this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag", 10);
         this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/current_controls", 10);
-        this->cones_observations_pub = this->create_publisher<ihm2::msg::ConesObservations>("/ihm2/cones_observations", 10);
         this->tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);
 
         // subscribers
@@ -637,11 +588,6 @@ public:
                 std::chrono::duration<double>(1.0 / 100.0),
                 std::bind(
                         &SimNode::sim_timer_cb,
-                        this));
-        this->cones_observations_timer = this->create_wall_timer(
-                std::chrono::duration<double>(1.0 / this->get_parameter("cones_observations_freq").as_double()),
-                std::bind(
-                        &SimNode::publish_cones_observations_cb,
                         this));
     }
 

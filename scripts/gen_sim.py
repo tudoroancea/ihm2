@@ -19,8 +19,8 @@ g = 9.81  # gravity
 m = 230.0  # mass
 I_z = 137.583  # yaw moment of inertia
 a = b = 1.24  # wheelbase
-l_R = 0.785  # distance from CoG to rear axle
-l_F = 0.785  # distance from CoG to front axle
+l_R = 0.7853  # distance from CoG to rear axle
+l_F = 0.7853  # distance from CoG to front axle
 l = 1.570  # distance between the two axles
 z_CG = 0.295  # height of CoG
 # drivetrain parameters (simplified)
@@ -57,10 +57,9 @@ Ca = c1a
 Da = d1a * static_weight + d2a
 Ea = e1a * static_weight + e2a
 Ba = BCDa / (Ca * Da)
-ic(BCDs, Cs, Ds, Es, Bs, BCDa, Ca, Da, Ea, Ba)
 
 # wheel parameters
-R_w = 0.202  # wheel radius
+R_w = 0.20809  # wheel radius
 I_w = 0.3  # wheel inertia
 k_d = 0.17  #
 k_s = 15.0  #
@@ -70,6 +69,7 @@ t_T = 1e-3  # time constant for throttle actuator
 t_delta = 1e-3
 # aerodynamic parameters
 C_downforce = 3.96864
+K_tv = 300.0
 
 
 # derived parameters
@@ -189,14 +189,6 @@ def gen_dyn6_model() -> AcadosModel:
     a_x = v_x_dot - v_y * r
     a_y = v_y_dot + v_x * r
 
-    # longitudinal dynamics
-    F_motor = C_m0 * T
-    F_drag = -(C_r0 + C_r1 * v_x + C_r2 * v_x * v_x) * tanh(1000 * v_x)
-    F_x_FL = 0.25 * F_motor
-    F_x_FR = 0.25 * F_motor
-    F_x_RL = 0.25 * F_motor
-    F_x_RR = 0.25 * F_motor
-
     # lateral dynamics
     F_downforce = 0.5 * C_downforce * v_x * v_x
     static_weight = 0.5 * m * g * l_F / l
@@ -254,6 +246,21 @@ def gen_dyn6_model() -> AcadosModel:
     F_y_FR = F_z_FR * mu_y_FR
     F_y_RL = F_z_RL * mu_y_RL
     F_y_RR = F_z_RR * mu_y_RR
+
+    # longitudinal dynamics
+    F_drag = -(C_r0 + C_r1 * v_x + C_r2 * v_x * v_x) * tanh(1000 * v_x)
+    tandelta = tan(delta)
+    sinbeta = C * tandelta / sqrt(1 + C * C * tandelta * tandelta)
+    r_kin = v_x * sinbeta / l_R
+    delta_tau = K_tv * (r_kin - r)
+    tau_FL = (T - delta_tau) * F_z_FL / (-m * g - 0.25 * F_downforce)
+    tau_FR = (T + delta_tau) * F_z_FR / (-m * g - 0.25 * F_downforce)
+    tau_RL = (T - delta_tau) * F_z_RL / (-m * g - 0.25 * F_downforce)
+    tau_RR = (T + delta_tau) * F_z_RR / (-m * g - 0.25 * F_downforce)
+    F_x_FL = C_m0 * tau_FL
+    F_x_FR = C_m0 * tau_FR
+    F_x_RL = C_m0 * tau_RL
+    F_x_RR = C_m0 * tau_RR
 
     # complete dynamics
     f_impl = vertcat(

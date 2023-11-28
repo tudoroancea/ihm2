@@ -8,27 +8,15 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wextra -Wpedantic -pthread -O2 -std=c++17 -Wno-deprecated-declarations")
 set(CMAKE_BUILD_TYPE Debug)
 
-# find dependencies
-find_package(ament_cmake REQUIRED)
+# find ROS 2 dependencies
 find_package(ament_cmake_auto REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(diagnostic_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(statistics_msgs REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(stereo_msgs REQUIRED)
-find_package(tf2_geometry_msgs REQUIRED)
-find_package(tf2_msgs REQUIRED)
-find_package(tf2_sensor_msgs REQUIRED)
-find_package(trajectory_msgs REQUIRED)
-find_package(visualization_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 ament_auto_find_build_dependencies()
 
-# find other libraries: eigen3, acados
+# find other libraries: eigen3, nlohmann json, curl, acados
 find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
-
+find_package(CURL REQUIRED)
 option(ACADOS_PATH "Path to acados installation" $ENV{ACADOS_SOURCE_DIR})
 
 if(NOT ACADOS_PATH)
@@ -44,6 +32,11 @@ add_compile_definitions(TRACKS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tracks")
 
 # ocp and sim json
 add_compile_definitions(OCP_JSON_PATH=" ${CMAKE_CURRENT_SOURCE_DIR}/../../ihm2_ocp.json ")
+
+# if on WSL then add preprocessor definition
+if(DEFINED ENV{WSLENV})
+  add_compile_definitions(WSL)
+endif()
 
 # generate custom message and service types
 set(msg_files
@@ -83,6 +76,7 @@ target_link_libraries(sim_node
   ${IHM2_KIN6_SIM_LIB} # acados sim solver generated code
   ${IHM2_DYN6_SIM_LIB} # acados sim solver generated code
   ihm2_common # ihm2 common library
+  CURL::libcurl
 )
 target_include_directories(sim_node PUBLIC
   "${ACADOS_PATH}/include"

@@ -10,6 +10,8 @@ PYTHON_EXE=$(which python3)
 echo "Using python interpreter: $PYTHON_EXE"
 
 if [ "$1" != "--skip_gen" ]; then
+    # for some reason this variable is lost in subshells
+    export DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH:$ACADOS_SOURCE_DIR/lib
     # generate the code for the acados OCP and simulator solvers
     python3 scripts/gen_sim.py
     python3 scripts/gen_track_file.py

@@ -4,6 +4,7 @@
 #include "acados_sim_solver_ihm2_dyn6.h"
 #include "acados_sim_solver_ihm2_kin6.h"
 #include "ament_index_cpp/get_package_share_directory.hpp"
+#include "curl/curl.h"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
@@ -18,6 +19,7 @@
 #include "ihm2/common/cone_color.hpp"
 #include "ihm2/common/marker_color.hpp"
 #include "ihm2/common/math.hpp"
+#include "ihm2/common/tracks.hpp"
 #include "ihm2/external/icecream.hpp"
 #include "ihm2/msg/controls.hpp"
 #include "nlohmann/json.hpp"
@@ -38,23 +40,10 @@
 
 using namespace std;
 
-
-Eigen::VectorXi mask_to_idx(Eigen::Array<bool, Eigen::Dynamic, 1> mask) {
-    Eigen::VectorXi idx(mask.count());
-    long long llIdx(0);
-    for (long long llI(0), llN(mask.size()); llI < llN; ++llI) {
-        if (mask(llI)) {
-            idx(llIdx) = llI;
-            ++llIdx;
-        }
-    }
-    return idx;
-}
-
+// used for the lap time computation
 bool ccw(Eigen::Vector2d a, Eigen::Vector2d b, Eigen::Vector2d c) {
     return (c(1) - a(1)) * (b(0) - a(0)) > (b(1) - a(1)) * (c(0) - a(0));
 }
-
 bool intersect(Eigen::Vector2d a, Eigen::Vector2d b, Eigen::Vector2d c, Eigen::Vector2d d) {
     return ccw(a, c, d) != ccw(b, c, d) && ccw(a, b, c) != ccw(a, b, d);
 }
@@ -68,6 +57,24 @@ Eigen::PermutationMatrix<Eigen::Dynamic> argsort(const Eigen::DenseBase<Derived>
     return perm;
 }
 
+// internet connectivity status
+bool is_internet_connected() {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        curl_global_cleanup();
+        return false;  // Failed to initialize curl
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, "http://www.google.com");
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);  // Use a HEAD request to reduce data transfer
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+
+    return res == CURLE_OK;
+}
+
+// error classes
 class FatalNodeError : public std::runtime_error {
 public:
     FatalNodeError(const std::string& what) : std::runtime_error(what) {}
@@ -78,15 +85,16 @@ public:
     NodeError(const std::string& what) : std::runtime_error(what) {}
 };
 
+// actual simulation node
 class SimNode : public rclcpp::Node {
 private:
     // publishers
-    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr viz_pub;
+    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub;
     rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr viz_pub;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
-    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
     // subscribers
     rclcpp::Subscription<ihm2::msg::Controls>::SharedPtr controls_sub;
@@ -97,19 +105,12 @@ private:
     rclcpp::Service<std_srvs::srv::Empty>::SharedPtr publish_cones_srv;
 
     // simulation variables
-    double* x;
-    double* u;
-    size_t nx, nu;
     rclcpp::TimerBase::SharedPtr sim_timer;
-    visualization_msgs::msg::MarkerArray cones_marker_array;
+    double *x, *u;
+    size_t nx, nu;
     geometry_msgs::msg::PoseStamped pose_msg;
     geometry_msgs::msg::TwistStamped vel_msg;
     geometry_msgs::msg::TransformStamped transform;
-    std::unordered_map<ConeColor, Eigen::MatrixX2d> cones_map;
-    Eigen::Vector2d last_pos, start_line_pos_1, start_line_pos_2;  // used for lap counting
-    double last_lap_time = 0.0, best_lap_time = 0.0;
-    rclcpp::Time last_lap_time_stamp = rclcpp::Time(0, 0);
-
     // acados sim solver variables
     void* kin6_sim_capsule;
     sim_config* kin6_sim_config;
@@ -121,20 +122,35 @@ private:
     sim_in* dyn6_sim_in;
     sim_out* dyn6_sim_out;
     void* dyn6_sim_dims;
+    // cones
+    visualization_msgs::msg::MarkerArray cones_marker_array;
+    std::unordered_map<ConeColor, Eigen::MatrixX2d> cones_map;
+    // lap timing
+    Eigen::Vector2d last_pos, start_line_pos_1, start_line_pos_2;
+    double last_lap_time = 0.0, best_lap_time = 0.0;
+    rclcpp::Time last_lap_time_stamp = rclcpp::Time(0, 0);
+    // architecture and internet connectivity status (for visualization)
+#ifdef WSL
+    static constexpr bool is_wsl = true;
+#else
+    static constexpr bool is_wsl = false;
+#endif
+    bool has_internet;
+
 
     void controls_callback(const ihm2::msg::Controls::SharedPtr msg) {
         if (!this->get_parameter("manual_control").as_bool()) {
-            double T_max = this->get_parameter("T_max").as_double(), delta_max = this->get_parameter("delta_max").as_double();
+            double T_max = this->get_parameter("T_max").as_double(), delta_max = this->get_parameter("delta_max").as_double(), ddelta_max(0.01 * 2 * delta_max / 1.0);
             u[0] = clip(msg->throttle, -T_max, T_max);
-            u[1] = clip(msg->steering, -delta_max, delta_max);
+            u[1] = clip(clip(msg->steering, u[1] - ddelta_max, u[1] + ddelta_max), -delta_max, delta_max);
         }
     }
 
     void alternative_controls_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
         if (this->get_parameter("manual_control").as_bool()) {
-            double T_max = this->get_parameter("T_max").as_double(), delta_max = this->get_parameter("delta_max").as_double();
+            double T_max = this->get_parameter("T_max").as_double(), delta_max = this->get_parameter("delta_max").as_double(), ddelta_max(0.01 * 2 * delta_max / 1.0);
             u[0] = clip(msg->linear.x, -T_max, T_max);
-            u[1] = clip(msg->angular.z, -delta_max, delta_max);
+            u[1] = clip(clip(msg->angular.z, u[1] - ddelta_max, u[1] + ddelta_max), -delta_max, delta_max);
         }
     }
 
@@ -143,6 +159,7 @@ private:
     }
 
     void reset_srv_cb([[maybe_unused]] const std_srvs::srv::Empty::Request::SharedPtr request, [[maybe_unused]] std_srvs::srv::Empty::Response::SharedPtr response) {
+        // reset x and u
         for (size_t i = 0; i < nx; i++) {
             x[i] = 0.0;
         }
@@ -150,6 +167,8 @@ private:
         for (size_t i = 0; i < nu; i++) {
             u[i] = 0.0;
         }
+        // reset lap timing
+        this->last_lap_time_stamp = rclcpp::Time(0, 0);
         // create string containing new values of x and u
         std::stringstream ss;
         ss << std::fixed << std::setprecision(3);
@@ -391,8 +410,7 @@ private:
                                 cones(i, 0),
                                 cones(i, 1),
                                 is_orange(color) ? "orange" : cone_color_to_string(color),
-                                color != ConeColor::BIG_ORANGE,
-                                this->get_parameter("use_meshes").as_bool()));
+                                color != ConeColor::BIG_ORANGE));
             }
         }
         RCLCPP_INFO(this->get_logger(), "Loaded %lu cones from %s", cones_marker_array.markers.size(), track_name_or_file.c_str());
@@ -410,13 +428,13 @@ private:
         }
     }
 
-    visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y, std::string color, bool small, bool mesh = true) {
+    visualization_msgs::msg::Marker get_cone_marker(uint64_t id, double X, double Y, std::string color, bool small) {
         visualization_msgs::msg::Marker marker;
         marker.header.frame_id = "world";
         marker.ns = color + "_cones";
         marker.id = id;
         marker.action = visualization_msgs::msg::Marker::MODIFY;
-        if (mesh) {
+        if (!this->is_wsl || this->has_internet) {
             marker.type = visualization_msgs::msg::Marker::MESH_RESOURCE;
             marker.mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/cone.stl";
             marker.scale.x = 1.0;
@@ -449,43 +467,111 @@ private:
 
     std::vector<visualization_msgs::msg::Marker> get_car_markers() {
         double X = x[0], Y = x[1], phi = x[2], delta = x[nx - 1];
-        std::string car_mesh = this->get_parameter("car_mesh").as_string();
-        std::vector<visualization_msgs::msg::Marker> markers(1);
-        markers[0].header.frame_id = "world";
-        markers[0].ns = "car";
-        markers[0].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-        markers[0].action = visualization_msgs::msg::Marker::MODIFY;
-        markers[0].mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/" + car_mesh;
-        markers[0].pose.position.x = X;
-        markers[0].pose.position.y = Y;
-        markers[0].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi);
-        markers[0].scale.x = 1.0;
-        markers[0].scale.y = 1.0;
-        markers[0].scale.z = 1.0;
-        markers[0].color = marker_colors("white");
-        if (car_mesh == "gotthard.stl") {
-            // add the 4 wheels at points (0.819, 0.6), (0.819, -0.6), (-0.711, 0.6), (-0.711, -0.6)
-            // and add a yaw of delta to the first two
+        std::vector<visualization_msgs::msg::Marker> markers;
+        if (!this->is_wsl || this->has_internet) {
+            // we either are not on WSL (i.e. we are on Linux of macOS) or we are and we have internet connection,
+            // so we use mesh markers for the car
+            // note: we used lazey evaluation to avoid calling is_internet_connected() if we are not on WSL
+            std::string car_mesh = this->get_parameter("car_mesh").as_string();
+            markers.resize(car_mesh == "lego-lrt4.stl" ? 1 : 5);
+            markers[0].header.frame_id = "world";
+            markers[0].ns = "car";
+            markers[0].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+            markers[0].action = visualization_msgs::msg::Marker::MODIFY;
+            markers[0].mesh_resource = this->is_wsl ? this->get_remote_mesh_path(car_mesh) : this->get_local_mesh_path(car_mesh);
+            markers[0].pose.position.x = X;
+            markers[0].pose.position.y = Y;
+            markers[0].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi);
+            markers[0].scale.x = 1.0;
+            markers[0].scale.y = 1.0;
+            markers[0].scale.z = 1.0;
+            markers[0].color = marker_colors("white");
+            if (car_mesh == "gotthard.stl") {
+                for (size_t i(1); i < 5; ++i) {
+                    markers[i].header.frame_id = "world";
+                    markers[i].ns = "car";
+                    markers[i].id = i;
+                    markers[i].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+                    markers[i].mesh_resource = this->is_wsl ? this->get_remote_mesh_path("gotthard_wheel.stl") : this->get_local_mesh_path("gotthard_wheel.stl");
+                    markers[i].action = visualization_msgs::msg::Marker::MODIFY;
+                    double wheel_x(i < 3 ? 0.819 : -0.711),
+                            wheel_y(i % 2 == 0 ? 0.6 : -0.6),
+                            wheel_phi(i < 3 ? delta : 0.0);
+                    markers[i].pose.position.x = X + wheel_x * std::cos(phi) - wheel_y * std::sin(phi);
+                    markers[i].pose.position.y = Y + wheel_x * std::sin(phi) + wheel_y * std::cos(phi);
+                    markers[i].pose.position.z = 0.232;
+                    markers[i].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi + wheel_phi);
+                    markers[i].scale.x = 1.0;
+                    markers[i].scale.y = 1.0;
+                    markers[i].scale.z = 1.0;
+                    markers[i].color = marker_colors("black");
+                }
+            } else if (car_mesh == "ariane.stl") {
+                for (size_t i(1); i < 5; ++i) {
+                    markers[i].header.frame_id = "world";
+                    markers[i].ns = "car";
+                    markers[i].id = i;
+                    markers[i].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+                    markers[i].mesh_resource = this->is_wsl ? this->get_remote_mesh_path("ariane_wheel.stl") : this->get_local_mesh_path("ariane_wheel.stl");
+                    markers[i].action = visualization_msgs::msg::Marker::MODIFY;
+                    double wheel_x(i < 3 ? 0.7853 : -0.7853),
+                            wheel_y(i % 2 == 0 ? 0.6291 : -0.6291),
+                            wheel_phi(i < 3 ? delta : 0.0);
+                    // the STL represents right wheels, so for left wheels (i.e. i=1,3) we add a yaw of pi
+                    wheel_phi += (i % 2 == 1 ? 0.0 : M_PI);
+                    markers[i].pose.position.x = X + wheel_x * std::cos(phi) - wheel_y * std::sin(phi);
+                    markers[i].pose.position.y = Y + wheel_x * std::sin(phi) + wheel_y * std::cos(phi);
+                    markers[i].pose.position.z = 0.20809;
+                    markers[i].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi + wheel_phi);
+                    markers[i].scale.x = 1.0;
+                    markers[i].scale.y = 1.0;
+                    markers[i].scale.z = 1.0;
+                    markers[i].color = marker_colors("black");
+                }
+            }
+        } else {
+            // we are on WSL and we don't have internet connection, so we use cubes and cylinders for the car
             markers.resize(5);
+            markers[0].header.frame_id = "world";
+            markers[0].ns = "car";
+            markers[0].id = 0;
+            markers[0].type = visualization_msgs::msg::Marker::CUBE;
+            markers[0].action = visualization_msgs::msg::Marker::MODIFY;
+            markers[0].pose.position.x = X + 0.5 * std::cos(phi);
+            markers[0].pose.position.y = Y + 0.5 * std::sin(phi);
+            markers[0].pose.position.z = 0.6 / 2.0;
+            markers[0].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi);
+            markers[0].scale.x = 3.19;
+            markers[0].scale.y = 1.05;
+            markers[0].scale.z = 0.6;
+            markers[0].color = marker_colors("white");
             for (size_t i(1); i < 5; ++i) {
                 markers[i].header.frame_id = "world";
                 markers[i].ns = "car";
                 markers[i].id = i;
-                markers[i].type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-                markers[i].mesh_resource = "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/gotthard_wheel.stl";
+                markers[i].type = visualization_msgs::msg::Marker::CYLINDER;
                 markers[i].action = visualization_msgs::msg::Marker::MODIFY;
-                double wheel_x(i < 3 ? 0.819 : -0.711), wheel_y(i % 2 == 0 ? 0.6 : -0.6), wheel_phi(i < 3 ? delta : 0.0);
+                double wheel_x(i < 3 ? 0.7853 : -0.7853),
+                        wheel_y(i % 2 == 0 ? 0.6291 : -0.6291),
+                        wheel_phi(i < 3 ? delta : 0.0);
                 markers[i].pose.position.x = X + wheel_x * std::cos(phi) - wheel_y * std::sin(phi);
                 markers[i].pose.position.y = Y + wheel_x * std::sin(phi) + wheel_y * std::cos(phi);
                 markers[i].pose.position.z = 0.232;
-                markers[i].pose.orientation = rpy_to_quaternion(0.0, 0.0, phi + wheel_phi);
-                markers[i].scale.x = 1.0;
-                markers[i].scale.y = 1.0;
-                markers[i].scale.z = 1.0;
+                markers[i].pose.orientation = rpy_to_quaternion(M_PI_2, 0.0, phi + wheel_phi);
+                markers[i].scale.x = 0.41618;
+                markers[i].scale.y = 0.41618;
+                markers[i].scale.z = 0.21;
                 markers[i].color = marker_colors("black");
             }
         }
         return markers;
+    }
+
+    inline std::string get_local_mesh_path(std::string mesh_file) {
+        return "file://" + ament_index_cpp::get_package_share_directory("brains_cpp") + "/meshes/" + mesh_file;
+    }
+    inline std::string get_remote_mesh_path(std::string mesh_file) {
+        return "https://raw.github.com/EPFL-RT-Driverless/resources/main/meshes/" + mesh_file;
     }
 
 public:
@@ -499,15 +585,15 @@ public:
         // - manual_control: if true, the car can be controlled by the user
         // - use_meshes: if true, the car and cones are represented by meshes, otherwise by arrows
         // - v_dyn: from what speed the dynamic model should be used
-        this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
         this->declare_parameter<double>("T_max", 1107.0);
         this->declare_parameter<double>("delta_max", 0.5);
+        this->declare_parameter<double>("v_dyn", 3.0);
+        this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
         this->declare_parameter<bool>("manual_control", true);
         this->declare_parameter<bool>("use_meshes", true);
-        this->declare_parameter<double>("v_dyn", 3.0);
         this->declare_parameter<std::vector<double>>("range_limits", {0.0, 15.0});
         this->declare_parameter<std::vector<double>>("bearing_limits", {-deg2rad(50.0), deg2rad(50.0)});
-        this->declare_parameter<std::string>("car_mesh", "gotthard.stl");
+        this->declare_parameter<std::string>("car_mesh", "ariane.stl");
 
         // initialize x and u with zeros
         nx = IHM2_DYN6_NX;
@@ -516,6 +602,10 @@ public:
         u = (double*) malloc(sizeof(double) * nu);
         this->reset_srv_cb(nullptr, nullptr);
         RCLCPP_INFO(this->get_logger(), "Initialized x and u with sizes %zu and %zu", nx, nu);
+
+        // check internet connectivity at launch time
+        // (we assume we won't lose it)
+        this->has_internet = is_internet_connected();
 
         // load acados sim solvers (for kin6 and dyn6 models)
         kin6_sim_capsule = ihm2_kin6_acados_sim_solver_create_capsule();

@@ -21,7 +21,7 @@ I_z = 137.583  # yaw moment of inertia
 a = b = 1.24  # wheelbase
 l_R = 0.7853  # distance from CoG to rear axle
 l_F = 0.7853  # distance from CoG to front axle
-l = 1.570  # distance between the two axles
+l = 1.5706  # distance between the two axles
 z_CG = 0.295  # height of CoG
 # drivetrain parameters (simplified)
 C_m0 = 4.950
@@ -538,15 +538,15 @@ def main():
     print(f"Generating Dyn6 sim solver took: {t1 - t0:.3f} s")
 
     # dyn10 model
-    t0 = perf_counter()
-    generate_sim_solver(
-        gen_dyn10_model(),
-        sim_solver_opts,
-        gen_code_dir + "/ihm2_dyn10_sim_gen_code",
-        gen_code_dir + "/ihm2_dyn10_sim.json",
-    )
-    t1 = perf_counter()
-    print(f"Generating Dyn10 sim solver took: {t1 - t0:.3f} s")
+    # t0 = perf_counter()
+    # generate_sim_solver(
+    #     gen_dyn10_model(),
+    #     sim_solver_opts,
+    #     gen_code_dir + "/ihm2_dyn10_sim_gen_code",
+    #     gen_code_dir + "/ihm2_dyn10_sim.json",
+    # )
+    # t1 = perf_counter()
+    # print(f"Generating Dyn10 sim solver took: {t1 - t0:.3f} s")
 
 
 if __name__ == "__main__":

@@ -65,8 +65,7 @@ k_d = 0.17  #
 k_s = 15.0  #
 # time constants of actuators
 t_T = 1e-3  # time constant for throttle actuator
-# t_delta = 0.02  # time constant for steering actuator
-t_delta = 1e-3
+t_delta = 0.02  # time constant for steering actuator
 # aerodynamic parameters
 C_downforce = 3.96864
 K_tv = 300.0
@@ -122,7 +121,7 @@ def gen_kin6_model() -> AcadosModel:
 
     # longitudinal dynamics
     F_motor = C_m0 * T
-    F_drag = -(C_r0 + C_r1 * v_x + C_r2 * v_x * v_x) * tanh(1000 * v_x)
+    F_drag = -(C_r0 + C_r1 * v_x + C_r2 * v_x * v_x) * smooth_sgn(v_x)
     F_Rx = 0.5 * F_motor + F_drag
     F_Fx = 0.5 * F_motor
 

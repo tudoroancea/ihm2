@@ -22,6 +22,7 @@
 #include "ihm2/common/tracks.hpp"
 #include "ihm2/external/icecream.hpp"
 #include "ihm2/msg/controls.hpp"
+#include "ihm2/msg/state.hpp"
 #include "nlohmann/json.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -36,6 +37,7 @@
 #include "visualization_msgs/msg/marker_array.hpp"
 #include <cmath>
 #include <fstream>
+#include <rclcpp/publisher.hpp>
 #include <unordered_map>
 
 using namespace std;
@@ -90,9 +92,8 @@ class SimNode : public rclcpp::Node {
 private:
     // publishers
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
-    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub;
-    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub;
-    rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
+    rclcpp::Publisher<ihm2::msg::State>::SharedPtr state_pub;
+    // rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr viz_pub;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
 
@@ -108,9 +109,9 @@ private:
     rclcpp::TimerBase::SharedPtr sim_timer;
     double *x, *u;
     size_t nx, nu;
-    geometry_msgs::msg::PoseStamped pose_msg;
-    geometry_msgs::msg::TwistStamped vel_msg;
+    ihm2::msg::State state_msg;
     geometry_msgs::msg::TransformStamped transform;
+
     // acados sim solver variables
     void* kin6_sim_capsule;
     sim_config* kin6_sim_config;
@@ -122,19 +123,23 @@ private:
     sim_in* dyn6_sim_in;
     sim_out* dyn6_sim_out;
     void* dyn6_sim_dims;
+
     // cones
     visualization_msgs::msg::MarkerArray cones_marker_array;
     std::unordered_map<ConeColor, Eigen::MatrixX2d> cones_map;
+
     // lap timing
     Eigen::Vector2d last_pos, start_line_pos_1, start_line_pos_2;
     double last_lap_time = 0.0, best_lap_time = 0.0;
     rclcpp::Time last_lap_time_stamp = rclcpp::Time(0, 0);
+
     // architecture and internet connectivity status (for visualization)
 #ifdef WSL
     static constexpr bool is_wsl = true;
 #else
     static constexpr bool is_wsl = false;
 #endif
+
     bool has_internet;
 
 
@@ -269,34 +274,25 @@ private:
         }
         this->last_pos = pos;
         // override the pose and velocity and controls with the simulation output
-        this->pose_msg.header.stamp = this->now();
-        this->pose_msg.header.frame_id = "world";
-        this->pose_msg.pose.position.x = x[0];
-        this->pose_msg.pose.position.y = x[1];
-        this->pose_msg.pose.orientation = rpy_to_quaternion(0.0, 0.0, x[2]);
-        this->pose_pub->publish(this->pose_msg);
+        this->state_msg.header.stamp = this->now();
+        this->state_msg.header.frame_id = "world";
+        this->state_msg.pose.position.x = x[0];
+        this->state_msg.pose.position.y = x[1];
+        this->state_msg.pose.orientation = rpy_to_quaternion(0.0, 0.0, x[2]);
+        this->state_msg.twist.linear.x = x[3];
+        this->state_msg.twist.linear.y = x[4];
+        this->state_msg.twist.angular.z = x[5];
+        this->state_msg.controls.throttle = x[nx - 2];
+        this->state_msg.controls.steering = x[nx - 1];
+        this->state_pub->publish(this->state_msg);
 
         this->transform.header.stamp = this->now();
         this->transform.header.frame_id = "world";
         this->transform.child_frame_id = "car";
         this->transform.transform.translation.x = x[0];
         this->transform.transform.translation.y = x[1];
-        this->transform.transform.rotation = this->pose_msg.pose.orientation;
+        this->transform.transform.rotation = this->state_msg.pose.orientation;
         this->tf_broadcaster->sendTransform(this->transform);
-
-        this->vel_msg.header.stamp = this->now();
-        this->vel_msg.header.frame_id = "car";
-        this->vel_msg.twist.linear.x = x[3];
-        this->vel_msg.twist.linear.y = x[4];
-        this->vel_msg.twist.angular.z = x[5];
-        this->vel_pub->publish(this->vel_msg);
-
-        ihm2::msg::Controls controls_msg;
-        controls_msg.header.stamp = this->now();
-        controls_msg.header.frame_id = "car";
-        controls_msg.throttle = x[nx - 2];
-        controls_msg.steering = x[nx - 1];
-        this->controls_pub->publish(controls_msg);
 
         visualization_msgs::msg::MarkerArray markers_msg;
         std::vector<visualization_msgs::msg::Marker> car_markers = get_car_markers();
@@ -568,7 +564,7 @@ private:
     }
 
     inline std::string get_local_mesh_path(std::string mesh_file) {
-        return "file://" + ament_index_cpp::get_package_share_directory("brains_cpp") + "/meshes/" + mesh_file;
+        return "file://" + ament_index_cpp::get_package_share_directory("ihm2") + "/meshes/" + mesh_file;
     }
     inline std::string get_remote_mesh_path(std::string mesh_file) {
         return "https://raw.github.com/EPFL-RT-Driverless/resources/main/meshes/" + mesh_file;
@@ -629,22 +625,20 @@ public:
 
         // publishers
         this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz/sim", 10);
-        this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("/ihm2/pose", 10);
-        this->vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/ihm2/vel", 10);
+        this->state_pub = this->create_publisher<ihm2::msg::State>("/ihm2/state", 10);
         this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag", 10);
-        this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/current_controls", 10);
         this->tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);
 
         // subscribers
         this->controls_sub = this->create_subscription<ihm2::msg::Controls>(
-                "/ihm2/target_controls",
+                "/ihm2/controls",
                 10,
                 std::bind(
                         &SimNode::controls_callback,
                         this,
                         std::placeholders::_1));
         this->alternative_controls_sub = this->create_subscription<geometry_msgs::msg::Twist>(
-                "/ihm2/alternative_target_controls",
+                "/ihm2/alternative_controls",
                 10,
                 std::bind(
                         &SimNode::alternative_controls_callback,

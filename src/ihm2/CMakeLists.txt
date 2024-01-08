@@ -41,11 +41,12 @@ endif()
 # generate custom message and service types
 set(msg_files
   "msg/Controls.msg"
+  "msg/State.msg"
 )
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${msg_files}
   ${srv_files}
-  DEPENDENCIES std_msgs # Add packages that above messages depend on
+  DEPENDENCIES std_msgs geometry_msgs
 )
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
 
@@ -105,26 +106,23 @@ install(DIRECTORY
 )
 
 # generate control node
-# find_library(IHM2_FKIN4_OCP_LIB acados_ocp_solver_ihm2_fkin4 PATHS ihm2_ocp_gen_code)
-# message(STATUS " IHM2_FKIN4_OCP_LIB: ${IHM2_FKIN4_OCP_LIB} ")
-# ament_auto_add_executable(control_node src/control_node.cpp)
-# target_link_libraries(control_node
-# " ${cpp_typesupport_target} " # for custom message and service types defined in this package
-# ${ACADOS_LIB} # acados library
-# ${IHM2_FKIN4_OCP_LIB} # acados ocp solver generated code
-# ihm2_common # ihm2 common library
-# )
-# target_include_directories(control_node PUBLIC
-# " ${ACADOS_PATH}/include "
-# " ${ACADOS_PATH}/include/acados "
-# " ${ACADOS_PATH}/include/acados_c "
-# " ${ACADOS_PATH}/include/blasfeo/include "
-# " ${ACADOS_PATH}/include/hpipm/include "
-# " ihm2_ocp_gen_code "
-# " ihm2_ocp_gen_code/ihm2_fkin4_model "
-# " ihm2_ocp_gen_code/ihm2_fkin4_constraints "
-# " ihm2_ocp_gen_code/ihm2_fkin4_cost "
-# )
+find_library(IHM2_FKIN6_MPC_LIB acados_ocp_solver_ihm2_fkin6 PATHS "${CMAKE_CURRENT_SOURCE_DIR}/generated/ihm2_fkin6_mpc_gen_code")
+message(STATUS "IHM2_FKIN6_MPC_LIB: ${IHM2_FKIN6_MPC_LIB}")
+ament_auto_add_executable(mpc_control_node src/mpc_control_node.cpp)
+target_link_libraries(mpc_control_node
+  ${cpp_typesupport_target} # for custom message and service types defined in this package
+  ${ACADOS_LIB} # acados library
+  ${IHM2_FKIN6_MPC_LIB} # acados ocp solver generated code
+  ihm2_common # ihm2 common library
+)
+target_include_directories(mpc_control_node PUBLIC
+  "${ACADOS_PATH}/include"
+  "${ACADOS_PATH}/include/acados"
+  "${ACADOS_PATH}/include/acados_c"
+  "${ACADOS_PATH}/include/blasfeo/include"
+  "${ACADOS_PATH}/include/hpipm/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/generated/ihm2_fkin6_mpc_gen_code"
+)
 
 # install everything in the ihm2 package
 ament_auto_package(INSTALL_TO_SHARE)

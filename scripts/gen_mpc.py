@@ -1,5 +1,6 @@
 # Copyright (c) 2023. Tudor Oancea
 
+from time import perf_counter
 from casadi import (
     cos,
     sin,
@@ -125,8 +126,8 @@ zu_e = np.array([100.0, 100.0, 100.0, 100.0, 100.0, 100.0])
 Zl_e = np.array([100.0, 100.0, 100.0, 100.0, 100.0, 100.0])
 Zu_e = np.array([100.0, 100.0, 100.0, 100.0, 100.0, 100.0])
 
-Nf = 40
-dt = 0.05
+dt = 0.05  # 20 Hz
+Nf = 40  # 2 seconds horizon
 opts = AcadosOcpOptions()
 opts.tf = Nf * dt
 opts.qp_solver = "PARTIAL_CONDENSING_HPIPM"
@@ -354,6 +355,10 @@ def gen_mpc(model: AcadosModel, s_ref: np.ndarray):
 
 
 def main():
+    print("**************************************************")
+    print("* Generating acados OCP solver *******************")
+    print("**************************************************\n")
+    start = perf_counter()
     file = "src/ihm2/tracks/fsds_competition_1.csv"
     data = np.loadtxt(file, delimiter=",", skiprows=1)
     s_ref = data[:, 0]
@@ -361,6 +366,7 @@ def main():
     left_width = data[0, -1]
     model = generate_fkin6_model(s_ref, right_width, left_width)
     gen_mpc(model, s_ref)
+    print(f"Generation took {perf_counter() - start} seconds.\n")
 
 
 if __name__ == "__main__":

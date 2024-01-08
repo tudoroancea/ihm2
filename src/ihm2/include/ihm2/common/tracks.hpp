@@ -64,6 +64,9 @@ public:
             double* left_width_proj = nullptr);
 
     double length() const;
+
+    double* get_s_ref();
+    double* get_kappa_ref();
 };
 
 

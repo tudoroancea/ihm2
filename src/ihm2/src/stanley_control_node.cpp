@@ -3,41 +3,20 @@
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
 #include "eigen3/Eigen/Eigen"
-#include "geometry_msgs/msg/pose.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include "geometry_msgs/msg/quaternion.hpp"
-#include "geometry_msgs/msg/transform_stamped.hpp"
-#include "geometry_msgs/msg/twist.hpp"
-#include "geometry_msgs/msg/twist_stamped.hpp"
-#include "geometry_msgs/msg/vector3.hpp"
-#include "ihm2/common/cone_color.hpp"
-#include "ihm2/common/marker_color.hpp"
 #include "ihm2/common/math.hpp"
 #include "ihm2/common/tracks.hpp"
 #include "ihm2/external/icecream.hpp"
 #include "ihm2/msg/controls.hpp"
-#include "ihm2/srv/string.hpp"
-#include "message_filters/subscriber.h"
-#include "message_filters/sync_policies/approximate_time.h"
-#include "message_filters/time_synchronizer.h"
-#include "nlohmann/json.hpp"
-#include "rcl_interfaces/msg/set_parameters_result.hpp"
+#include "ihm2/msg/state.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/color_rgba.hpp"
-#include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/header.hpp"
 #include "std_srvs/srv/empty.hpp"
-#include "tf2/LinearMath/Quaternion.h"
 #include "tf2/utils.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2_ros/transform_broadcaster.h"
-#include "visualization_msgs/msg/marker.hpp"
-#include "visualization_msgs/msg/marker_array.hpp"
 #include <deque>
-#include <fstream>
 #include <memory>
 #include <numeric>
-#include <unordered_map>
 
 
 using namespace std;
@@ -54,17 +33,12 @@ public:
 
 class StanleyControlNode : public rclcpp::Node {
 private:
-    typedef message_filters::sync_policies::ApproximateTime<geometry_msgs::msg::PoseStamped, geometry_msgs::msg::TwistStamped, ihm2::msg::Controls> ApproximatePolicy;
-    typedef message_filters::Synchronizer<ApproximatePolicy> ApproximateSynchronizer;
-
-    message_filters::Subscriber<ihm2::msg::Controls> controls_sub;
-    message_filters::Subscriber<geometry_msgs::msg::PoseStamped> pose_sub;
-    message_filters::Subscriber<geometry_msgs::msg::TwistStamped> vel_sub;
-    std::shared_ptr<ApproximateSynchronizer> synchronizer;
-
-    // rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr viz_pub;
+    // publishers
     rclcpp::Publisher<ihm2::msg::Controls>::SharedPtr controls_pub;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub;
+
+    // subscriptions
+    rclcpp::Subscription<ihm2::msg::State>::SharedPtr state_sub;
 
     ihm2::msg::Controls controls_msg;
 
@@ -72,26 +46,19 @@ private:
     double s_guess = 0.0;
     std::deque<double> last_epsilons;
 
-    void
-    controls_callback(
-            const geometry_msgs::msg::PoseStamped::ConstSharedPtr& pose_msg,
-            const geometry_msgs::msg::TwistStamped::ConstSharedPtr& vel_msg,
-            [[maybe_unused]] const ihm2::msg::Controls::ConstSharedPtr& current_controls_msg) {
-
+    void controls_callback(const ihm2::msg::State::ConstSharedPtr& state_msg) {
         auto start = this->now();
-        double X(pose_msg->pose.position.x), Y(pose_msg->pose.position.y), phi(tf2::getYaw(pose_msg->pose.orientation)), v_x(vel_msg->twist.linear.x);
+        double X(state_msg->pose.position.x), Y(state_msg->pose.position.y), phi(tf2::getYaw(state_msg->pose.orientation)), v_x(state_msg->twist.linear.x);
+
         // project the current position on the track
-        double* s = new double;
-        double* Xref = new double;
-        double* Yref = new double;
-        double* phi_ref = new double;
-        double* phi_ref_preview = new double;
-        *phi_ref_preview = this->get_parameter("phi_ref_preview_distance").as_double();
-        this->track->project(Eigen::Vector2d(X, Y), this->s_guess, 2.0, s, Xref, Yref, phi_ref, phi_ref_preview);
-        this->s_guess = std::fmod(*s + v_x * 0.01, this->track->length());
+        double s, Xref, Yref, phi_ref, phi_ref_preview = this->get_parameter("phi_ref_preview_distance").as_double();
+        this->track->project(Eigen::Vector2d(X, Y), this->s_guess, 2.0, &s, &Xref, &Yref, &phi_ref, &phi_ref_preview);
+        this->s_guess = std::fmod(s + v_x * 0.01, this->track->length());
+
         // longitudinal control
         double epsilon = this->get_parameter("v_x_ref").as_double() - v_x;
         this->last_epsilons.push_back(epsilon);
+
         // compute intrgral error term
         double epsilon_integral = 0.0;
         if (last_epsilons.size() >= 2) {
@@ -111,10 +78,10 @@ private:
                 -this->get_parameter("T_max").as_double(),
                 this->get_parameter("T_max").as_double());
         // lateral control
-        double rho = wrap_to_pi(*phi_ref);
+        double rho = wrap_to_pi(phi_ref);
         double psi = wrap_to_pi(rho - phi);
-        double theta = std::atan2(*Yref - Y, *Xref - X);
-        double e = std::hypot(*Xref - X, *Yref - Y);
+        double theta = std::atan2(Yref - Y, Xref - X);
+        double e = std::hypot(Xref - X, Yref - Y);
         double k_psi = this->get_parameter("k_psi").as_double(), k_e = this->get_parameter("k_e").as_double(), k_s = this->get_parameter("k_s").as_double();
         double delta = clip(
                 k_psi * psi + std::atan(k_e * e / (k_s + v_x)) * (theta - rho > 0 ? 1.0 : -1.0) * (std::abs(theta - rho) > M_PI ? -1.0 : 1.0),
@@ -162,9 +129,8 @@ private:
 
 public:
     StanleyControlNode() : Node("stanley_control_node") {
-        // parameters:
-        // - track_name: name of the track to load (must be the same as the one used to generate the ocp solver)
-        this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_2");
+        // parameters
+        this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_1");
         this->declare_parameter<double>("v_x_ref", 5.0);
         this->declare_parameter<double>("k_P", 90.0);
         this->declare_parameter<double>("k_I", 10.0);
@@ -176,31 +142,15 @@ public:
         this->declare_parameter<double>("T_max", 100.0);
         this->declare_parameter<double>("delta_max", 0.5);
 
-
         // publishers
-        // this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz/control", 10);
-        this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/target_controls", 10);
+        this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/controls", 10);
         this->diag_pub = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/ihm2/diag", 10);
 
         // subscribers
-        this->pose_sub.subscribe(this, "/ihm2/pose");
-        this->vel_sub.subscribe(this, "/ihm2/vel");
-        this->controls_sub.subscribe(this, "/ihm2/current_controls");
-
-        // approximate time synchronizer
-        this->synchronizer = std::make_shared<ApproximateSynchronizer>(
-                ApproximatePolicy(10),
-                this->pose_sub,
-                this->vel_sub,
-                this->controls_sub);
-        this->synchronizer->getPolicy()->setMaxIntervalDuration(rclcpp::Duration(100, 0));
-        this->synchronizer->registerCallback(
-                std::bind(
-                        &StanleyControlNode::controls_callback,
-                        this,
-                        std::placeholders::_1,
-                        std::placeholders::_2,
-                        std::placeholders::_3));
+        this->state_sub = this->create_subscription<ihm2::msg::State>(
+                "/ihm2/state",
+                10,
+                std::bind(&StanleyControlNode::controls_callback, this, std::placeholders::_1));
 
 #ifdef TRACKS_PATH
         // create track instance from file
@@ -214,7 +164,7 @@ public:
 #endif
     }
 
-    ~StanleyControlNode() {}
+    ~StanleyControlNode() = default;
 };
 
 int main(int argc, char** argv) {

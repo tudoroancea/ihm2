@@ -503,6 +503,10 @@ def generate_sim_solver(
 
 
 def main():
+    print("**************************************************")
+    print("* Generating track files *************************")
+    print("**************************************************\n")
+
     gen_code_dir = "src/ihm2/generated"
     if not os.path.exists(gen_code_dir):
         os.makedirs(gen_code_dir)
@@ -546,6 +550,8 @@ def main():
     # )
     # t1 = perf_counter()
     # print(f"Generating Dyn10 sim solver took: {t1 - t0:.3f} s")
+
+    print("")
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ if [ "$1" != "--skip_gen" ]; then
     export DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH:$ACADOS_SOURCE_DIR/lib
     # generate the code for the acados OCP and simulator solvers
     python3 scripts/gen_sim.py
+    python3 scripts/gen_mpc.py
     python3 scripts/gen_track_file.py
 fi
 
@@ -27,6 +28,3 @@ echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_fk
 echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_dyn6_sim_gen_code" >> $(pwd)/install/setup.sh
 echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_kin6_sim_gen_code" >> $(pwd)/install/setup.sh
 echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_fkin6_mpc_gen_code" >> $(pwd)/install/setup.sh
-
-# source the setup file
-. $(pwd)/install/setup.sh

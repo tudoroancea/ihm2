@@ -106,15 +106,8 @@ def my_calc_splines(
         P = P.toarray()
 
     # solve the QP for X and Y separately
-    start = perf_counter()
     p_X = solve_qp(P=P, q=q[:, 0], A=A, b=b, solver=qp_solver)
-    stop = perf_counter()
-    time_X = 1000 * (stop - start)
-    start = perf_counter()
     p_Y = solve_qp(P=P, q=q[:, 1], A=A, b=b, solver=qp_solver)
-    stop = perf_counter()
-    time_Y = 1000 * (stop - start)
-    print(f"computing X took {time_X} ms, computing Y took {time_Y} ms")
 
     # compute interpolation error on X and Y
     X_err = B @ p_X - path[:, 0]
@@ -379,17 +372,23 @@ def generate_track_file(
 
 
 def main():
+    print("**************************************************")
+    print("* Generating track files *************************")
+    print("**************************************************\n")
     for track_name in [
         "fsds_competition_1",
         "fsds_competition_2",
         "fsds_competition_3",
     ]:
+        start = perf_counter()
         generate_track_file(
             track_name,
             "src/ihm2/tracks/" + track_name + ".csv",
             # plot=True,
         )
+        print(f"Generation of track {track_name} took {perf_counter() - start} seconds.")
 
+    print("")
 
 if __name__ == "__main__":
     main()

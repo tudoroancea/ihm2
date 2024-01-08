@@ -291,3 +291,6 @@ void Track::project(
 double Track::length() const {
     return -s_ref(0);
 }
+
+double* Track::get_s_ref() { return s_ref.data(); }
+double* Track::get_kappa_ref() { return kappa_ref.data(); }

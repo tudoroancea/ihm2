@@ -45,7 +45,7 @@ private:
     Eigen::VectorXd delta_s;
     Eigen::MatrixX2d coeffs_X, coeffs_Y, coeffs_phi, coeffs_kappa, coeffs_right_width, coeffs_left_width;
 
-    void interp(const Eigen::MatrixXd& coeffs, double s, double& value, int ind = -1);
+    void interp(const Eigen::MatrixXd& coeffs, double s, double& value, int ind = -1) const;
 
 public:
     explicit Track(const std::string& csv_file);
@@ -63,10 +63,16 @@ public:
             double* right_width_proj = nullptr,
             double* left_width_proj = nullptr);
 
+    void frenet_to_cartesian(const double& s, const double& n, double& X, double& Y) const;
+    void frenet_to_cartesian(const Eigen::VectorXd& s, const Eigen::VectorXd& n, Eigen::VectorXd& X, Eigen::VectorXd& Y) const;
+
     double length() const;
+    size_t size() const;
 
     double* get_s_ref();
     double* get_kappa_ref();
+    double* get_X_ref();
+    double* get_Y_ref();
 };
 
 

@@ -34,6 +34,7 @@
 #include "tf2_ros/transform_broadcaster.h"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
+#include <Eigen/src/Core/util/Constants.h>
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -69,6 +70,7 @@ private:
     int idxbx0[IHM2_FKIN6_NBX0];
     double lbx0[IHM2_FKIN6_NBX0], ubx0[IHM2_FKIN6_NBX0];
     double y_ref[IHM2_FKIN6_NY];
+    Eigen::Vector<double, IHM2_FKIN6_N + 1> Xpred, Ypred;
 
     // acados ocp solver
     ihm2_fkin6_solver_capsule* acados_capsule;
@@ -85,6 +87,10 @@ private:
     // motion planning
     std::unique_ptr<Track> track;
     double s_guess = 0.0;
+
+    // pre-allocated messages
+    ihm2::msg::Controls controls_msg;
+    visualization_msgs::msg::MarkerArray viz_msg;
 
     void controls_callback(const ihm2::msg::State::ConstSharedPtr& state_msg) {
         if (this->sim_counter == 0) {
@@ -183,7 +189,6 @@ private:
             ocp_nlp_out_get(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_out, IHM2_FKIN6_N, "x", x + IHM2_FKIN6_NX * IHM2_FKIN6_N);
 
             // publish controls
-            ihm2::msg::Controls controls_msg;
             controls_msg.header.stamp = this->now();
             controls_msg.throttle = u[0];
             controls_msg.steering = u[1];
@@ -223,6 +228,27 @@ private:
             diag_msg.status[0].values.push_back(heading_error_kv);
 
             this->diag_pub->publish(diag_msg);
+
+            // publish viz
+            // Marker(
+            //     header=header,
+            //     ns="trajectory_pred",
+            //     type=Marker.LINE_STRIP,
+            //     scale=Vector3(x=0.01),
+            //     points=[Point(x=x, y=y) for x, y in zip(res.X, res.Y)],
+            //     color=ColorRGBA(r=252 / 255, g=3 / 255, b=157 / 255, a=1.0),
+            // ),
+            // viz_msg.markers[0]
+            Eigen::Map<Eigen::Matrix<double, IHM2_FKIN6_NX, IHM2_FKIN6_N + 1, Eigen::ColMajor>> x_eigen(x);
+            Eigen::VectorXd s_pred = x_eigen.row(0), n_pred = x_eigen.row(1);
+            std::cout << "s_pred: " << s_pred << "n_pred: " << n_pred << std::endl;
+            Eigen::VectorXd X_pred, Y_pred;
+            this->track->frenet_to_cartesian(s_pred, n_pred, X_pred, Y_pred);
+            for (size_t i = 0; i < IHM2_FKIN6_N + 1; i++) {
+                viz_msg.markers[0].points[i].x = X_pred[i];
+                viz_msg.markers[0].points[i].y = Y_pred[i];
+            }
+            this->viz_pub->publish(viz_msg);
         }
         this->sim_counter = (this->sim_counter + 1) % this->sim_steps;
     }
@@ -310,6 +336,33 @@ public:
 #else
         raise FatalNodeError("TRACKS_PATH not defined");
 #endif
+
+        // initialize messages
+        controls_msg.header.frame_id = "car";
+        controls_msg.header.stamp = this->now();
+        viz_msg.markers.resize(2);
+        viz_msg.markers[0].header.frame_id = "world";
+        viz_msg.markers[0].header.stamp = this->now();
+        viz_msg.markers[0].ns = "trajectory_pred";
+        viz_msg.markers[0].id = 0;  // maybe not necessary
+        viz_msg.markers[0].type = visualization_msgs::msg::Marker::LINE_STRIP;
+        viz_msg.markers[0].scale.x = 0.1;
+        viz_msg.markers[0].color = marker_colors("purple");
+        viz_msg.markers[0].points.resize(IHM2_FKIN6_N + 1);
+        // only points to fill out
+        viz_msg.markers[1].header.frame_id = "world";
+        viz_msg.markers[1].header.stamp = this->now();
+        viz_msg.markers[1].ns = "center_line";
+        viz_msg.markers[1].id = 0;  // maybe not necessary
+        viz_msg.markers[1].type = visualization_msgs::msg::Marker::LINE_STRIP;
+        viz_msg.markers[1].scale.x = 0.05;
+        viz_msg.markers[1].color = marker_colors("white");
+        viz_msg.markers[1].points.resize(this->track->size());
+        for (size_t i = 0; i < this->track->size(); i++) {
+            viz_msg.markers[1].points[i].x = this->track->get_X_ref()[i];
+            viz_msg.markers[1].points[i].y = this->track->get_Y_ref()[i];
+        }
+        this->viz_pub->publish(viz_msg);
     }
 
     ~MPCControlNode() {

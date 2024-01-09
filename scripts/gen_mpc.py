@@ -10,7 +10,6 @@ from casadi import (
     MX,
     vertcat,
     exp,
-    fabs,
     sqrt,
     tanh,
 )
@@ -29,6 +28,8 @@ a = b = 1.24  # wheelbase
 l_R = 0.7853  # distance from CoG to rear axle
 l_F = 0.7853  # distance from CoG to front axle
 l = 1.5706  # distance between the two axles
+L = 3.19
+W = 1.55
 z_CG = 0.295  # height of CoG
 # drivetrain parameters (simplified)
 C_m0 = 4.950
@@ -70,8 +71,6 @@ R_w = 0.20809  # wheel radius
 I_w = 0.3  # wheel inertia
 k_d = 0.17  #
 k_s = 15.0  #
-L = 3.19
-W = 1.55
 # time constants of actuators
 t_T = 1e-3  # time constant for throttle actuator
 t_delta = 0.02  # time constant for steering actuator
@@ -80,19 +79,9 @@ C_downforce = 3.96864
 K_tv = 300.0
 
 
-# derived parameters
+# derived geometric parameters
 C = l_R / l
 Ctilde = 1 / l
-
-# model bounds
-T_min = -1107.0
-T_max = 1107.0
-delta_min = -0.5
-delta_max = 0.5
-T_dot_min = -1e6
-T_dot_max = 1e6
-delta_dot_min = -2.0
-delta_dot_max = 2.0
 
 # model bounds
 n_min = -1.5
@@ -107,8 +96,8 @@ delta_min = -0.5
 delta_max = 0.5
 T_dot_min = -1e6
 T_dot_max = 1e6
-delta_dot_min = -2.0
-delta_dot_max = 2.0
+delta_dot_min = -1.0
+delta_dot_max = 1.0
 a_lat_min = -5.0
 a_lat_max = 5.0
 
@@ -133,7 +122,7 @@ opts.tf = Nf * dt
 opts.qp_solver = "PARTIAL_CONDENSING_HPIPM"
 opts.nlp_solver_type = "SQP_RTI"
 opts.hessian_approx = "GAUSS_NEWTON"
-opts.hpipm_mode = "SPEED_ABS"
+opts.hpipm_mode = "ROBUST"
 opts.integrator_type = "ERK"
 opts.sim_method_num_stages = 4
 opts.sim_method_num_steps = 1
@@ -152,10 +141,8 @@ def smooth_abs(x: sym_t) -> sym_t:
 
 
 def generate_fkin6_model(
-    s_ref: np.ndarray,
-    right_width: float,
-    left_width: float,
-):
+    s_ref: np.ndarray, right_width: float, left_width: float
+) -> AcadosModel:
     s = sym_t.sym("s")
     n = sym_t.sym("n")
     psi = sym_t.sym("psi")
@@ -223,16 +210,16 @@ def generate_fkin6_model(
     model.xdot = xdot
     model.name = "ihm2_fkin6"
 
-    right_track_constraint = (
-        n - 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - right_width
-    )
-    left_track_constraint = (
-        -n + 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - left_width
-    )
-    model.con_h_expr = vertcat(
-        a_lat, right_track_constraint, left_track_constraint, T_dot, delta_dot
-    )
-    model.con_h_expr_e = vertcat(a_lat, right_track_constraint, left_track_constraint)
+    # right_track_constraint = (
+    #     n - 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - right_width
+    # )
+    # left_track_constraint = (
+    #     -n + 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - left_width
+    # )
+    # model.con_h_expr = vertcat(
+    #     a_lat, right_track_constraint, left_track_constraint, T_dot, delta_dot
+    # )
+    # model.con_h_expr_e = vertcat(a_lat, right_track_constraint, left_track_constraint)
     return model
 
 
@@ -265,7 +252,7 @@ def gen_mpc(model: AcadosModel, s_ref: np.ndarray):
     ocp.cost.Vx_e = np.eye(ny_e)
 
     # nonlinear constraints
-    ocp.dims.nh = model.con_h_expr.size()[0]
+    # ocp.dims.nh = model.con_h_expr.size()[0]
 
     # set intial references (will be overrided either way so the actual value doesn't matter)
     # but need them for the dimensions
@@ -295,53 +282,55 @@ def gen_mpc(model: AcadosModel, s_ref: np.ndarray):
     ocp.constraints.idxsbx_e = np.array([1, 2, 3])
     ocp.dims.nsbx_e = ocp.constraints.idxsbx_e.size
 
-    ocp.constraints.idxsh = np.array([0, 1, 2])
-    ocp.constraints.lh = np.array(
-        [
-            a_lat_min,
-            -1e3,
-            -1e3,
-            T_dot_min,
-            delta_dot_min,
-        ]
-    )
-    ocp.constraints.uh = np.array(
-        [
-            a_lat_max,
-            0.0,
-            0.0,
-            T_dot_max,
-            delta_dot_max,
-        ]
-    )
-    ocp.dims.nsh = ocp.constraints.idxsh.size
+    # TODO: add constraints on T_dot and delta_dot
 
-    ocp.constraints.idxsh_e = np.array([0, 1, 2])
-    ocp.constraints.lh_e = np.array(
-        [
-            a_lat_min,
-            -1e3,
-            -1e3,
-        ]
-    )
-    ocp.constraints.uh_e = np.array(
-        [
-            a_lat_max,
-            0.0,
-            0.0,
-        ]
-    )
-    ocp.dims.nsh_e = ocp.constraints.idxsh_e.size
+    # ocp.constraints.idxsh = np.array([0, 1, 2])
+    # ocp.constraints.lh = np.array(
+    #     [
+    #         a_lat_min,
+    #         -1e3,
+    #         -1e3,
+    #         T_dot_min,
+    #         delta_dot_min,
+    #     ]
+    # )
+    # ocp.constraints.uh = np.array(
+    #     [
+    #         a_lat_max,
+    #         0.0,
+    #         0.0,
+    #         T_dot_max,
+    #         delta_dot_max,
+    #     ]
+    # )
+    # ocp.dims.nsh = ocp.constraints.idxsh.size
+    #
+    # ocp.constraints.idxsh_e = np.array([0, 1, 2])
+    # ocp.constraints.lh_e = np.array(
+    #     [
+    #         a_lat_min,
+    #         -1e3,
+    #         -1e3,
+    #     ]
+    # )
+    # ocp.constraints.uh_e = np.array(
+    #     [
+    #         a_lat_max,
+    #         0.0,
+    #         0.0,
+    #     ]
+    # )
+    # ocp.dims.nsh_e = ocp.constraints.idxsh_e.size
 
     # slack variables
-    ocp.cost.zl = zl
-    ocp.cost.zu = zu
-    ocp.cost.Zl = Zl
-    ocp.cost.Zu = Zu
-    ocp.cost.zl_e = zl_e
-    ocp.cost.zu_e = zu_e
-    ocp.cost.Zl_e = Zl_e
-    ocp.cost.Zu_e = Zu_e
+    ocp.cost.zl = zl[:3]
+    ocp.cost.zu = zu[:3]
+    ocp.cost.Zl = Zl[:3]
+    ocp.cost.Zu = Zu[:3]
+    ocp.cost.zl_e = zl_e[:3]
+    ocp.cost.zu_e = zu_e[:3]
+    ocp.cost.Zl_e = Zl_e[:3]
+    ocp.cost.Zu_e = Zu_e[:3]
 
     # set QP solver and integration
     ocp.solver_options = opts

@@ -189,7 +189,7 @@ double angle3pt(const Eigen::Vector2d& a, const Eigen::Vector2d& b, const Eigen:
     return wrap_to_pi(std::atan2(c(1) - b(1), c(0) - b(0)) - std::atan2(a(1) - b(1), a(0) - b(0)));
 }
 
-void Track::interp(const Eigen::MatrixXd& coeffs, double s, double& value, int ind) {
+void Track::interp(const Eigen::MatrixXd& coeffs, double s, double& value, int ind) const {
     // find i such that s_ref[i] <= s < s_ref[i+1]
     if (ind < 0) {
         ind = locate_index(s_ref, s);
@@ -288,9 +288,26 @@ void Track::project(
     }
 }
 
-double Track::length() const {
-    return -s_ref(0);
+void Track::frenet_to_cartesian(const double& s, const double& n, double& X, double& Y) const {
+    double X_ref, Y_ref, phi_ref;
+    this->interp(coeffs_phi, s, phi_ref);
+    this->interp(coeffs_X, s, X_ref);
+    this->interp(coeffs_Y, s, Y_ref);
+    Eigen::Vector2d normal(-std::sin(phi_ref), std::cos(phi_ref));
+    X = X_ref + n * normal(0);
+    Y = Y_ref + n * normal(1);
+}
+void Track::frenet_to_cartesian(const Eigen::VectorXd& s, const Eigen::VectorXd& n, Eigen::VectorXd& X, Eigen::VectorXd& Y) const {
+    X.resize(s.size());
+    Y.resize(s.size());
+    for (Eigen::Index i = 0; i < s.size(); ++i) {
+        this->frenet_to_cartesian(s(i), n(i), X(i), Y(i));
+    }
 }
 
+double Track::length() const { return -s_ref(0); }
+size_t Track::size() const { return s_ref.size(); }
 double* Track::get_s_ref() { return s_ref.data(); }
 double* Track::get_kappa_ref() { return kappa_ref.data(); }
+double* Track::get_X_ref() { return X_ref.data(); }
+double* Track::get_Y_ref() { return Y_ref.data(); }

@@ -386,9 +386,12 @@ def main():
             "src/ihm2/tracks/" + track_name + ".csv",
             # plot=True,
         )
-        print(f"Generation of track {track_name} took {perf_counter() - start} seconds.")
+        print(
+            f"Generation of track {track_name} took {perf_counter() - start} seconds."
+        )
 
     print("")
+
 
 if __name__ == "__main__":
     main()

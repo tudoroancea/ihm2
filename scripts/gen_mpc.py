@@ -12,6 +12,7 @@ from casadi import (
     exp,
     sqrt,
     tanh,
+    Function,
 )
 import os
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver, AcadosOcpOptions
@@ -84,8 +85,8 @@ C = l_R / l
 Ctilde = 1 / l
 
 # model bounds
-n_min = -1.5
-n_max = 1.5
+n_min = -2.5
+n_max = 2.5
 psi_min = -np.pi / 2
 psi_max = np.pi / 2
 v_x_min = 0.0
@@ -116,14 +117,15 @@ Zl_e = np.array([100.0, 100.0, 100.0, 100.0, 100.0, 100.0])
 Zu_e = np.array([100.0, 100.0, 100.0, 100.0, 100.0, 100.0])
 
 dt = 0.05  # 20 Hz
-Nf = 40  # 2 seconds horizon
+Nf = 20  # 1 seconds horizon
 opts = AcadosOcpOptions()
 opts.tf = Nf * dt
 opts.qp_solver = "PARTIAL_CONDENSING_HPIPM"
-opts.nlp_solver_type = "SQP_RTI"
+opts.nlp_solver_type = "SQP"
+opts.nlp_solver_max_iter = 10
 opts.hessian_approx = "GAUSS_NEWTON"
 opts.hpipm_mode = "ROBUST"
-opts.integrator_type = "ERK"
+opts.integrator_type = "IRK"
 opts.sim_method_num_stages = 4
 opts.sim_method_num_steps = 1
 
@@ -186,13 +188,13 @@ def generate_fkin6_model(
     # complete dynamics
     kappa_ref = interpolant("kappa_ref", "linear", [s_ref])
     sdot_expr = (v_x * cos(psi) - v_y * sin(psi)) / (
-        1 - kappa_ref(s, kappa_ref_values) * n
+        1 + kappa_ref(s, kappa_ref_values) * n
     )
     v_y_dot = v_dot * sinbeta + beta_dot * v_x
     f_expl = vertcat(
         sdot_expr,  # s_dot
         v_x * sin(psi) + v_y * cos(psi),  # n_dot
-        r - kappa_ref(s, kappa_ref_values) * sdot_expr,  # psi_dot
+        r + kappa_ref(s, kappa_ref_values) * sdot_expr,  # psi_dot
         v_dot * cosbeta - beta_dot * v_y,  # v_x_dot
         v_y_dot,  # v_y_dot
         l_R * v_y_dot,  # r_dot
@@ -217,7 +219,7 @@ def generate_fkin6_model(
     #     -n + 0.5 * L * sin(fabs(psi)) + 0.5 * W * cos(psi) - left_width
     # )
     # model.con_h_expr = vertcat(
-    #     a_lat, right_track_constraint, left_track_constraint, T_dot, delta_dot
+    #     a_lat, right_track_constraint, left_track_constraint
     # )
     # model.con_h_expr_e = vertcat(a_lat, right_track_constraint, left_track_constraint)
     return model
@@ -269,7 +271,8 @@ def gen_mpc(model: AcadosModel, s_ref: np.ndarray):
     ocp.constraints.idxbx = np.array([1, 2, 3, 6, 7])
     ocp.constraints.lbx = np.array([n_min, psi_min, v_x_min, T_min, delta_min])
     ocp.constraints.ubx = np.array([n_max, psi_max, v_x_max, T_max, delta_max])
-    ocp.constraints.idxsbx = np.array([1, 2, 3])
+    # ocp.constraints.idxsbx = np.array([1, 2, 3])
+    ocp.constraints.idxsbx = np.array([1, 3])
     ocp.dims.nsbx = ocp.constraints.idxsbx.size
 
     ocp.constraints.idxbu = np.array([0, 1])
@@ -279,10 +282,18 @@ def gen_mpc(model: AcadosModel, s_ref: np.ndarray):
     ocp.constraints.idxbx_e = np.array([1, 2, 3, 4, 5])
     ocp.constraints.lbx_e = np.array([n_min, psi_min, v_x_min, T_min, delta_min])
     ocp.constraints.ubx_e = np.array([n_max, psi_max, v_x_max, T_max, delta_max])
-    ocp.constraints.idxsbx_e = np.array([1, 2, 3])
+    # ocp.constraints.idxsbx_e = np.array([1, 2, 3])
+    ocp.constraints.idxsbx_e = np.array([1, 3])
     ocp.dims.nsbx_e = ocp.constraints.idxsbx_e.size
 
-    # TODO: add constraints on T_dot and delta_dot
+    ocp.constraints.C = np.zeros((2, nx))
+    ocp.constraints.C[0, -2] = -1.0
+    ocp.constraints.C[1, -1] = -1.0
+    ocp.constraints.D = np.zeros((2, nu))
+    ocp.constraints.D[0, 0] = 1.0
+    ocp.constraints.D[1, 1] = 1.0
+    ocp.constraints.lg = np.array([t_T * T_dot_min, t_delta * delta_dot_min])
+    ocp.constraints.ug = np.array([t_T * T_dot_max, t_delta * delta_dot_max])
 
     # ocp.constraints.idxsh = np.array([0, 1, 2])
     # ocp.constraints.lh = np.array(
@@ -323,14 +334,14 @@ def gen_mpc(model: AcadosModel, s_ref: np.ndarray):
     # ocp.dims.nsh_e = ocp.constraints.idxsh_e.size
 
     # slack variables
-    ocp.cost.zl = zl[:3]
-    ocp.cost.zu = zu[:3]
-    ocp.cost.Zl = Zl[:3]
-    ocp.cost.Zu = Zu[:3]
-    ocp.cost.zl_e = zl_e[:3]
-    ocp.cost.zu_e = zu_e[:3]
-    ocp.cost.Zl_e = Zl_e[:3]
-    ocp.cost.Zu_e = Zu_e[:3]
+    ocp.cost.zl = zl[:2]
+    ocp.cost.zu = zu[:2]
+    ocp.cost.Zl = Zl[:2]
+    ocp.cost.Zu = Zu[:2]
+    ocp.cost.zl_e = zl_e[:2]
+    ocp.cost.zu_e = zu_e[:2]
+    ocp.cost.Zl_e = Zl_e[:2]
+    ocp.cost.Zu_e = Zu_e[:2]
 
     # set QP solver and integration
     ocp.solver_options = opts
@@ -356,6 +367,35 @@ def main():
     model = generate_fkin6_model(s_ref, right_width, left_width)
     gen_mpc(model, s_ref)
     print(f"Generation took {perf_counter() - start} seconds.\n")
+
+
+# def gen_initial_guess():
+#     file = "src/ihm2/tracks/fsds_competition_1.csv"
+#     data = np.loadtxt(file, delimiter=",", skiprows=1)
+#     s_ref = data[:, 0]
+#     kappa_ref_values = data[:, 1]
+#     right_width = data[0, -2]
+#     left_width = data[0, -1]
+#     model = generate_fkin6_model(s_ref, right_width, left_width)
+
+#     # discretize the explicit dynamics
+#     x = model.x
+#     u = model.u
+#     p = model.p
+#     f_cont = Function("f_cont", [x, u, p], [model.f_expl_expr])
+#     k1 = f_cont(x, u, p)
+#     k2 = f_cont(x + dt / 2 * k1, u, p)
+#     k3 = f_cont(x + dt * k2, u, p)
+#     k4 = f_cont(x + dt * k3, u, p)
+#     x_next = x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+#     f_disc = Function("f_disc", [x, u, p], [x_next])
+
+#     # unroll the dynamics
+#     u = np.array([T_max, 0.0])
+#     x_pred = [np.zeros(model.x.size()[0])]
+#     x_pred[0][0] = -5.0
+#     for i in range(Nf):
+#         pass
 
 
 if __name__ == "__main__":

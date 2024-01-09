@@ -18,11 +18,14 @@ from casadi import (
     tanh,
     atan2,
     hypot,
+    DM,
+    Function,
 )
 import numpy as np
 import os
 from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosSimOpts
 from time import perf_counter
+from icecream import ic
 
 __all__ = []
 
@@ -517,7 +520,7 @@ def generate_sim_solver(
 
 def main():
     print("**************************************************")
-    print("* Generating track files *************************")
+    print("* Generating acados SIM solver *******************")
     print("**************************************************\n")
 
     gen_code_dir = "src/ihm2/generated"
@@ -527,7 +530,7 @@ def main():
     sim_solver_opts = AcadosSimOpts()
     sim_solver_opts.T = 0.01
     sim_solver_opts.num_stages = 4
-    sim_solver_opts.num_steps = 10
+    sim_solver_opts.num_steps = 1
     sim_solver_opts.integrator_type = "IRK"
     sim_solver_opts.collocation_type = "GAUSS_RADAU_IIA"
 
@@ -566,6 +569,57 @@ def main():
 
     print("")
 
+def gen():
+
+    gen_code_dir = "src/ihm2/generated"
+    if not os.path.exists(gen_code_dir):
+        os.makedirs(gen_code_dir)
+
+    dt = 0.05
+    Nf = 20
+    sim_solver_opts = AcadosSimOpts()
+    sim_solver_opts.T = dt
+    sim_solver_opts.num_stages = 4
+    sim_solver_opts.num_steps = 20
+    sim_solver_opts.integrator_type = "IRK"
+    # sim_solver_opts.collocation_type = "GAUSS_RADAU_IIA"
+
+    model = gen_kin6_model()
+    solver = generate_sim_solver(
+        model,
+        sim_solver_opts,
+        gen_code_dir + "/ihm2_kin6_sim_gen_code",
+        gen_code_dir + "/ihm2_kin6_sim.json",
+    )
+
+    # discretize the explicit dynamics
+    # x = model.x
+    # u = model.u
+    # f_cont = Function("f_cont", [x, u], [model.f_expl_expr])
+    # k1 = f_cont(x, u)
+    # k2 = f_cont(x + dt / 2 * k1, u)
+    # k3 = f_cont(x + dt / 2 * k2, u)
+    # k4 = f_cont(x + dt * k3, u)
+    # x_next = x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+    # f_disc = Function("f_disc", [x, u], [x_next])
+
+    # unroll the dynamics
+    u = np.array([500.0, 0.0])
+    x_pred = [np.zeros(model.x.size()[0])]
+    x_pred[0][0] = -5.0
+    # ic(f_cont(x_pred[-1], u))
+    for i in range(Nf):
+        # x_pred.append(f_disc(x_pred[-1], u).full().flatten())
+        solver.set("x", x_pred[-1])
+        solver.set("u", u)
+        solver.solve()
+        x_pred.append(solver.get("x"))
+
+    x_pred = np.array(x_pred)
+    np.set_printoptions(precision=3, suppress=True, linewidth=200)
+    print(x_pred)
+
 
 if __name__ == "__main__":
     main()
+    # gen()

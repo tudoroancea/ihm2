@@ -122,7 +122,7 @@ private:
             // get values from messages
             double X = state_msg->pose.position.x,
                    Y = state_msg->pose.position.y,
-                   phi = tf2::getYaw(state_msg->pose.orientation),
+                   phi = wrap_to_pi(tf2::getYaw(state_msg->pose.orientation)),
                    v_x = state_msg->twist.linear.x,
                    v_y = state_msg->twist.linear.y,
                    r = state_msg->twist.angular.z,
@@ -132,14 +132,19 @@ private:
             // project the current position on the track
             double s, Xref, Yref, phi_ref;
             this->track->project(Eigen::Vector2d(X, Y), this->s_guess, 2.0, &s, &Xref, &Yref, &phi_ref);
-            this->s_guess = std::fmod(s + v_x * 0.01, this->track->length());
+            this->s_guess = std::fmod(s + v_x * 0.05, this->track->length());
 
             // compute Frenet states n,psi
             double rho = wrap_to_pi(phi_ref);
-            double psi = wrap_to_pi(rho - phi);
+            double psi = wrap_to_pi(phi - rho);
             double theta = std::atan2(Yref - Y, Xref - X);
             double e = std::hypot(Xref - X, Yref - Y);
-            double n = e * (theta - rho > 0 ? 1.0 : -1.0) * (std::abs(theta - rho) > M_PI ? -1.0 : 1.0);
+            // double n = -e * (theta - rho > 0 ? 1.0 : -1.0) * (std::abs(theta - rho) > M_PI ? -1.0 : 1.0);
+            double tpr = (Y - Yref) * std::cos(rho) - (X - Xref) * std::sin(rho);
+            if (std::abs(tpr) < 1e-6) {
+                throw FatalNodeError("tangent x normal is too small");
+            }
+            double n = e * (tpr > 0.0 ? 1.0 : -1.0);
 
             lbx0[0] = s;
             ubx0[0] = s;
@@ -165,15 +170,21 @@ private:
 
             // set ref
             double s_ref_Nf = this->get_parameter("s_ref_Nf").as_double();
+            RCLCPP_INFO(this->get_logger(), "s_ref_Nf: %f\n", s_ref_Nf);
+            printf("y_ref: ");
             for (size_t k = 0; k <= IHM2_FKIN6_N; k++) {
                 y_ref[0] = s + (s_ref_Nf * k) / IHM2_FKIN6_N;
+                printf("%f, ", y_ref[0]);
                 ocp_nlp_cost_model_set(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_in, k, "y_ref", y_ref);
             }
+            printf("\n");
 
             // call solver
             int status = ihm2_fkin6_acados_solve(acados_capsule);
             if (status == ACADOS_SUCCESS) {
-                RCLCPP_INFO(this->get_logger(), "ihm2_fkin6_acados_solve(): SUCCESS!\n");
+                // RCLCPP_INFO(this->get_logger(), "ihm2_fkin6_acados_solve(): SUCCESS!\n");
+            } else if (status == ACADOS_MAXITER) {
+                // RCLCPP_WARN(this->get_logger(), "ihm2_fkin6_acados_solve(): MAX ITER!\n");
             } else {
                 // RCLCPP_ERROR(this->get_logger(), "ihm2_fkin6_acados_solve() failed with status %d.\n", status);
                 throw FatalNodeError("ihm2_fkin6_acados_solve() failed with status " + std::to_string(status));
@@ -230,18 +241,9 @@ private:
             this->diag_pub->publish(diag_msg);
 
             // publish viz
-            // Marker(
-            //     header=header,
-            //     ns="trajectory_pred",
-            //     type=Marker.LINE_STRIP,
-            //     scale=Vector3(x=0.01),
-            //     points=[Point(x=x, y=y) for x, y in zip(res.X, res.Y)],
-            //     color=ColorRGBA(r=252 / 255, g=3 / 255, b=157 / 255, a=1.0),
-            // ),
-            // viz_msg.markers[0]
             Eigen::Map<Eigen::Matrix<double, IHM2_FKIN6_NX, IHM2_FKIN6_N + 1, Eigen::ColMajor>> x_eigen(x);
             Eigen::VectorXd s_pred = x_eigen.row(0), n_pred = x_eigen.row(1);
-            std::cout << "s_pred: " << s_pred << "n_pred: " << n_pred << std::endl;
+            // std::cout << "s_pred: " << s_pred << "n_pred: " << n_pred << std::endl;
             Eigen::VectorXd X_pred, Y_pred;
             this->track->frenet_to_cartesian(s_pred, n_pred, X_pred, Y_pred);
             for (size_t i = 0; i < IHM2_FKIN6_N + 1; i++) {
@@ -271,6 +273,9 @@ public:
         // initialize x and u with zeros
         for (size_t i = 0; i < IHM2_FKIN6_NX * (IHM2_FKIN6_N + 1); i++) {
             x[i] = 0.0;
+            if (i % IHM2_FKIN6_NX == 0) {
+                x[i] = -5.0;
+            }
         }
         for (size_t i = 0; i < IHM2_FKIN6_NU * IHM2_FKIN6_N; i++) {
             u[i] = 0.0;
@@ -363,6 +368,7 @@ public:
             viz_msg.markers[1].points[i].y = this->track->get_Y_ref()[i];
         }
         this->viz_pub->publish(viz_msg);
+        viz_msg.markers.pop_back();
     }
 
     ~MPCControlNode() {

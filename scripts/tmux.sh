@@ -16,6 +16,9 @@ then
 
     tmux new-window -t $SESSION:2 -n 'debug'
     tmux send-keys -t 'debug' 'mamba activate ihm2; . install/setup.sh' C-m
+
+    tmux new-window -t $SESSION:3 -n 'nvim'
+    tmux send-keys -t 'nvim' 'nvim' C-m
 fi
 
-tmux attach-session -t $SESSION:1
+tmux attach-session -t $SESSION:3

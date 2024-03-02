@@ -1,6 +1,3 @@
-[submodule "src/ros-foxglove-bridge"]
-	path = src/ros-foxglove-bridge
-	url = https://github.com/tudoroancea/ros-foxglove-bridge
 [submodule "src/teleop_cpp_ros2"]
 	path = src/teleop_cpp_ros2
 	url = https://github.com/aarsht7/teleop_cpp_ros2

@@ -24,15 +24,16 @@ It features:
 
 ## Workspace setup
 
-1. clone this repository:
+1. install miniforge3:
+  ```shell
+  cd $HOME
+  curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+  bash Miniforge3-$(uname)-$(uname -m).sh
+  ```
+2. clone this repository wherever you want:
   ```shell
   git clone https://github.com/tudoroancea/ihm2 --filter=blob:none --recurse-submodules
   cd ihm2
-  ```
-2. install miniforge3:
-  ```shell
-  curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-  bash Miniforge3-$(uname)-$(uname -m).sh
   ```
 3. create a conda env
   ```shell

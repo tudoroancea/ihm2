@@ -1,7 +1,8 @@
 // Copyright (c) 2023. Tudor Oancea
 #include "acados/utils/math.h"
-// #include "acados_c/external_function_interface.h"
 #include "acados_c/ocp_nlp_interface.h"
+#include "acados_c/sim_interface.h"
+#include "acados_sim_solver_ihm2_fkin6.h"
 #include "acados_solver_ihm2_fkin6.h"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -24,6 +25,7 @@
 #include "nlohmann/json.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sim_interface.h"
 #include "std_msgs/msg/color_rgba.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/header.hpp"
@@ -67,19 +69,27 @@ private:
     // double* x;  // x0, x1, ..., xNf stored in a single vector (row-major)
     // double* u;  // u0, u1, ..., uNf-1 stored in a single vector (row-major)
     double x[IHM2_FKIN6_NX * (IHM2_FKIN6_N + 1)], u[IHM2_FKIN6_NU * IHM2_FKIN6_N];
+    Eigen::Map<Eigen::Matrix<double, IHM2_FKIN6_NX, IHM2_FKIN6_N + 1, Eigen::ColMajor>> x_eigen;
+    Eigen::Map<Eigen::Matrix<double, IHM2_FKIN6_NU, IHM2_FKIN6_N, Eigen::ColMajor>> u_eigen;
     int idxbx0[IHM2_FKIN6_NBX0];
     double lbx0[IHM2_FKIN6_NBX0], ubx0[IHM2_FKIN6_NBX0];
     double y_ref[IHM2_FKIN6_NY];
     Eigen::Vector<double, IHM2_FKIN6_N + 1> Xpred, Ypred;
 
     // acados ocp solver
-    ihm2_fkin6_solver_capsule* acados_capsule;
-    ocp_nlp_config* acados_nlp_config;
-    ocp_nlp_dims* acados_nlp_dims;
-    ocp_nlp_in* acados_nlp_in;
-    ocp_nlp_out* acados_nlp_out;
-    ocp_nlp_solver* acados_nlp_solver;
-    void* acados_nlp_opts;
+    ihm2_fkin6_solver_capsule* acados_ocp_capsule;
+    ocp_nlp_config* acados_ocp_config;
+    ocp_nlp_dims* acados_ocp_dims;
+    ocp_nlp_in* acados_ocp_in;
+    ocp_nlp_out* acados_ocp_out;
+    ocp_nlp_solver* acados_ocp_solver;
+    void* acados_ocp_opts;
+
+    ihm2_fkin6_sim_solver_capsule* acados_sim_capsule;
+    sim_config* acados_sim_config;
+    void* acados_sim_dims;
+    sim_in* acados_sim_in;
+    sim_out* acados_sim_out;
 
     // to run at 20Hz instead of the full 100Hz offered by the simulation
     uint8_t sim_steps = 5, sim_counter = 0;
@@ -137,7 +147,7 @@ private:
             // compute Frenet states n,psi
             double rho = wrap_to_pi(phi_ref);
             double psi = wrap_to_pi(phi - rho);
-            double theta = std::atan2(Yref - Y, Xref - X);
+            // double theta = std::atan2(Yref - Y, Xref - X);
             double e = std::hypot(Xref - X, Yref - Y);
             // double n = -e * (theta - rho > 0 ? 1.0 : -1.0) * (std::abs(theta - rho) > M_PI ? -1.0 : 1.0);
             double tpr = (Y - Yref) * std::cos(rho) - (X - Xref) * std::sin(rho);
@@ -164,23 +174,19 @@ private:
             ubx0[7] = delta;
 
             // TODO: check output of those functions and print errors if they fail
-            ocp_nlp_constraints_model_set(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_in, 0, "idxbx", idxbx0);
-            ocp_nlp_constraints_model_set(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_in, 0, "lbx", lbx0);
-            ocp_nlp_constraints_model_set(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_in, 0, "ubx", ubx0);
+            ocp_nlp_constraints_model_set(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_in, 0, "idxbx", idxbx0);
+            ocp_nlp_constraints_model_set(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_in, 0, "lbx", lbx0);
+            ocp_nlp_constraints_model_set(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_in, 0, "ubx", ubx0);
 
             // set ref
             double s_ref_Nf = this->get_parameter("s_ref_Nf").as_double();
-            RCLCPP_INFO(this->get_logger(), "s_ref_Nf: %f\n", s_ref_Nf);
-            printf("y_ref: ");
             for (size_t k = 0; k <= IHM2_FKIN6_N; k++) {
                 y_ref[0] = s + (s_ref_Nf * k) / IHM2_FKIN6_N;
-                printf("%f, ", y_ref[0]);
-                ocp_nlp_cost_model_set(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_in, k, "y_ref", y_ref);
+                ocp_nlp_cost_model_set(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_in, k, "y_ref", y_ref);
             }
-            printf("\n");
 
             // call solver
-            int status = ihm2_fkin6_acados_solve(acados_capsule);
+            int status = ihm2_fkin6_acados_solve(acados_ocp_capsule);
             if (status == ACADOS_SUCCESS) {
                 // RCLCPP_INFO(this->get_logger(), "ihm2_fkin6_acados_solve(): SUCCESS!\n");
             } else if (status == ACADOS_MAXITER) {
@@ -194,10 +200,10 @@ private:
 
             // get solution
             for (int ii = 0; ii < IHM2_FKIN6_N; ii++) {
-                ocp_nlp_out_get(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_out, ii, "u", u + ii * IHM2_FKIN6_NU);
-                ocp_nlp_out_get(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_out, ii, "x", x + ii * IHM2_FKIN6_NX);
+                ocp_nlp_out_get(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_out, ii, "u", u + ii * IHM2_FKIN6_NU);
+                ocp_nlp_out_get(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_out, ii, "x", x + ii * IHM2_FKIN6_NX);
             }
-            ocp_nlp_out_get(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_out, IHM2_FKIN6_N, "x", x + IHM2_FKIN6_NX * IHM2_FKIN6_N);
+            ocp_nlp_out_get(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_out, IHM2_FKIN6_N, "x", x + IHM2_FKIN6_NX * IHM2_FKIN6_N);
 
             // publish controls
             controls_msg.header.stamp = this->now();
@@ -223,11 +229,6 @@ private:
             s_kv.value = std::to_string(s);
             diag_msg.status[0].values.push_back(s_kv);
 
-            diagnostic_msgs::msg::KeyValue e_kv;
-            e_kv.key = "e (m)";
-            e_kv.value = std::to_string(e);
-            diag_msg.status[0].values.push_back(e_kv);
-
             diagnostic_msgs::msg::KeyValue lateral_error_kv;
             lateral_error_kv.key = "n (m)";
             lateral_error_kv.value = std::to_string(n);
@@ -241,9 +242,7 @@ private:
             this->diag_pub->publish(diag_msg);
 
             // publish viz
-            Eigen::Map<Eigen::Matrix<double, IHM2_FKIN6_NX, IHM2_FKIN6_N + 1, Eigen::ColMajor>> x_eigen(x);
             Eigen::VectorXd s_pred = x_eigen.row(0), n_pred = x_eigen.row(1);
-            // std::cout << "s_pred: " << s_pred << "n_pred: " << n_pred << std::endl;
             Eigen::VectorXd X_pred, Y_pred;
             this->track->frenet_to_cartesian(s_pred, n_pred, X_pred, Y_pred);
             for (size_t i = 0; i < IHM2_FKIN6_N + 1; i++) {
@@ -256,7 +255,7 @@ private:
     }
 
 public:
-    MPCControlNode() : Node("mpc_control_node") {
+    MPCControlNode() : Node("mpc_control_node"), x_eigen(x), u_eigen(u) {
         // parameters
         this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_1");
         this->declare_parameter<double>("s_ref_Nf", 30.0);
@@ -270,12 +269,45 @@ public:
         W.diagonal() << Q_diag, R_diag;
         Eigen::Matrix<double, IHM2_FKIN6_NYN, IHM2_FKIN6_NYN> Wf = Qf_diag.asDiagonal();
 
+
+        // load acados ocp solver
+        acados_ocp_capsule = ihm2_fkin6_acados_create_capsule();
+        int status = ihm2_fkin6_acados_create(acados_ocp_capsule);
+        if (status) {
+            throw FatalNodeError("ihm2_fkin6_acados_create_with_discretization() returned status " + std::to_string(status));
+        }
+        acados_ocp_config = ihm2_fkin6_acados_get_nlp_config(acados_ocp_capsule);
+        acados_ocp_dims = ihm2_fkin6_acados_get_nlp_dims(acados_ocp_capsule);
+        acados_ocp_in = ihm2_fkin6_acados_get_nlp_in(acados_ocp_capsule);
+        acados_ocp_out = ihm2_fkin6_acados_get_nlp_out(acados_ocp_capsule);
+        acados_ocp_solver = ihm2_fkin6_acados_get_nlp_solver(acados_ocp_capsule);
+        acados_ocp_opts = ihm2_fkin6_acados_get_nlp_opts(acados_ocp_capsule);
+        RCLCPP_INFO(this->get_logger(), "Successfully loaded acados ocp solver");
+
+        for (int i = 0; i < IHM2_FKIN6_N; i++) {
+            status = ocp_nlp_cost_model_set(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_in, i, "W", W.data());
+            if (status) {
+                throw FatalNodeError("ocp_nlp_cost_model_set() returned status " + std::to_string(status));
+            }
+        }
+        ocp_nlp_cost_model_set(this->acados_ocp_config, this->acados_ocp_dims, this->acados_ocp_in, IHM2_FKIN6_N, "W", Wf.data());
+
+        // load acados sim solver (for the moment only used to properly warm start the ocp solver, see below)
+        acados_sim_capsule = ihm2_fkin6_acados_sim_solver_create_capsule();
+        status = ihm2_fkin6_acados_sim_create(acados_sim_capsule);
+        if (status) {
+            throw FatalNodeError("ihm2_fkin6_acados_sim_create() returned status " + std::to_string(status));
+        }
+        acados_sim_config = ihm2_fkin6_acados_get_sim_config(acados_sim_capsule);
+        acados_sim_dims = ihm2_fkin6_acados_get_sim_dims(acados_sim_capsule);
+        acados_sim_in = ihm2_fkin6_acados_get_sim_in(acados_sim_capsule);
+        acados_sim_out = ihm2_fkin6_acados_get_sim_out(acados_sim_capsule);
+        RCLCPP_INFO(this->get_logger(), "Successfully loaded acados sim solver");
+
+
         // initialize x and u with zeros
         for (size_t i = 0; i < IHM2_FKIN6_NX * (IHM2_FKIN6_N + 1); i++) {
             x[i] = 0.0;
-            if (i % IHM2_FKIN6_NX == 0) {
-                x[i] = -5.0;
-            }
         }
         for (size_t i = 0; i < IHM2_FKIN6_NU * IHM2_FKIN6_N; i++) {
             u[i] = 0.0;
@@ -286,29 +318,21 @@ public:
         for (size_t i = 0; i < IHM2_FKIN6_NY; i++) {
             y_ref[i] = 0.0;
         }
+        // now initialize better with a sim solver
+        x[0] = -5.0;
+        for (size_t i = 0; i < IHM2_FKIN6_N; i++) {
+            // set in
+            sim_in_set(acados_sim_config, acados_sim_dims, acados_sim_in, "x", x + i * IHM2_FKIN6_NX);
+            sim_in_set(acados_sim_config, acados_sim_dims, acados_sim_in, "u", u + i * IHM2_FKIN6_NU);
 
-        // load acados ocp solver
-        acados_capsule = ihm2_fkin6_acados_create_capsule();
-        double* new_time_steps = nullptr;
-        int status = ihm2_fkin6_acados_create_with_discretization(acados_capsule, IHM2_FKIN6_N, new_time_steps);
-        if (status) {
-            throw FatalNodeError("ihm2_fkin6_acados_create_with_discretization() returned status " + std::to_string(status));
-        }
-        acados_nlp_config = ihm2_fkin6_acados_get_nlp_config(acados_capsule);
-        acados_nlp_dims = ihm2_fkin6_acados_get_nlp_dims(acados_capsule);
-        acados_nlp_in = ihm2_fkin6_acados_get_nlp_in(acados_capsule);
-        acados_nlp_out = ihm2_fkin6_acados_get_nlp_out(acados_capsule);
-        acados_nlp_solver = ihm2_fkin6_acados_get_nlp_solver(acados_capsule);
-        acados_nlp_opts = ihm2_fkin6_acados_get_nlp_opts(acados_capsule);
-        RCLCPP_INFO(this->get_logger(), "Successfully loaded acados ocp solver");
-
-        for (int i = 0; i < IHM2_FKIN6_N; i++) {
-            status = ocp_nlp_cost_model_set(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_in, i, "W", W.data());
+            // simulate
+            status = ihm2_fkin6_acados_sim_solve(acados_sim_capsule);
             if (status) {
-                throw FatalNodeError("ocp_nlp_cost_model_set() returned status " + std::to_string(status));
+                throw FatalNodeError("ihm2_fkin6_acados_sim_solve() returned status " + std::to_string(status));
             }
+            // get solution
+            sim_out_get(acados_sim_config, acados_sim_dims, acados_sim_out, "x", x + IHM2_FKIN6_NX * (i + 1));
         }
-        ocp_nlp_cost_model_set(this->acados_nlp_config, this->acados_nlp_dims, this->acados_nlp_in, IHM2_FKIN6_N, "W", Wf.data());
 
         // publishers
         this->controls_pub = this->create_publisher<ihm2::msg::Controls>("/ihm2/controls", 10);
@@ -334,7 +358,7 @@ public:
 
         // set OCP parameters (the kappa_ref values)
         for (int i = 0; i < IHM2_FKIN6_N; i++) {
-            if (ihm2_fkin6_acados_update_params(acados_capsule, i, this->track->get_kappa_ref(), IHM2_FKIN6_NP)) {
+            if (ihm2_fkin6_acados_update_params(acados_ocp_capsule, i, this->track->get_kappa_ref(), IHM2_FKIN6_NP)) {
                 throw FatalNodeError("ihm2_fkin6_acados_update_params() failed");
             }
         }
@@ -372,16 +396,19 @@ public:
     }
 
     ~MPCControlNode() {
-        int status = ihm2_fkin6_acados_free(acados_capsule);
+        int status = ihm2_fkin6_acados_free(acados_ocp_capsule);
         if (status) {
             RCLCPP_ERROR(this->get_logger(), "ihm2_fkin6_acados_free() returned status %d. \n", status);
         }
-
-        // free solver capsule
-        status = ihm2_fkin6_acados_free_capsule(acados_capsule);
+        status = ihm2_fkin6_acados_free_capsule(acados_ocp_capsule);
         if (status) {
             RCLCPP_ERROR(this->get_logger(), "ihm2_fkin6_acados_free_capsule() returned status %d. \n", status);
         }
+        status = ihm2_fkin6_acados_sim_free(acados_sim_capsule);
+        if (status) {
+            RCLCPP_ERROR(this->get_logger(), "ihm2_fkin6_acados_sim_free() returned status %d. \n", status);
+        }
+        ihm2_fkin6_acados_sim_solver_free_capsule(acados_sim_capsule);
     }
 };
 

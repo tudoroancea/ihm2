@@ -107,12 +107,14 @@ install(DIRECTORY
 
 # generate control node
 find_library(IHM2_FKIN6_MPC_LIB acados_ocp_solver_ihm2_fkin6 PATHS "${CMAKE_CURRENT_SOURCE_DIR}/generated/ihm2_fkin6_mpc_gen_code")
-message(STATUS "IHM2_FKIN6_MPC_LIB: ${IHM2_FKIN6_MPC_LIB}")
+find_library(IHM2_FKIN6_SIM_LIB acados_sim_solver_ihm2_fkin6 PATHS "${CMAKE_CURRENT_SOURCE_DIR}/generated/ihm2_fkin6_mpc_gen_code")
+message(STATUS "IHM2_FKIN6_MPC_LIB: ${IHM2_FKIN6_MPC_LIB}, IHM_FKIN6_SIM_LIB: ${IHM2_FKIN6_SIM_LIB}")
 ament_auto_add_executable(mpc_control_node src/mpc_control_node.cpp)
 target_link_libraries(mpc_control_node
   ${cpp_typesupport_target} # for custom message and service types defined in this package
   ${ACADOS_LIB} # acados library
   ${IHM2_FKIN6_MPC_LIB} # acados ocp solver generated code
+  ${IHM2_FKIN6_SIM_LIB} # acados sim solver generated code
   ihm2_common # ihm2 common library
 )
 target_include_directories(mpc_control_node PUBLIC

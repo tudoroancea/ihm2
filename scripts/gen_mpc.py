@@ -12,7 +12,6 @@ from casadi import (
     exp,
     sqrt,
     tanh,
-    Function,
 )
 import os
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver, AcadosOcpOptions

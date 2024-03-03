@@ -1,3 +1,0 @@
-[submodule "src/teleop_cpp_ros2"]
-	path = src/teleop_cpp_ros2
-	url = https://github.com/aarsht7/teleop_cpp_ros2

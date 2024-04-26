@@ -701,18 +701,6 @@ def fdyn10_model(xdot: MX, x: MX, u: MX, p: MX) -> AcadosModel:
     v_lon_FR_smooth_abs = smooth_abs_nonzero(v_lon_FR)
     v_lon_RL_smooth_abs = smooth_abs_nonzero(v_lon_RL)
     v_lon_RR_smooth_abs = smooth_abs_nonzero(v_lon_RR)
-    # v_lon_FL_smooth_abs = conditional(
-    #     v_lon_FL > 0.5, [0.25 + v_lon_FL * v_lon_FL], v_lon_FL
-    # )
-    # v_lon_FR_smooth_abs = conditional(
-    #     v_lon_FR > 0.5, [0.25 + v_lon_FR * v_lon_FR], v_lon_FR
-    # )
-    # v_lon_RL_smooth_abs = conditional(
-    #     v_lon_RL > 0.5, [0.25 + v_lon_RL * v_lon_RL], v_lon_RL
-    # )
-    # v_lon_RR_smooth_abs = conditional(
-    #     v_lon_RR > 0.5, [0.25 + v_lon_RR * v_lon_RR], v_lon_RR
-    # )
 
     # slip angles
     alpha_FL = atan2(v_lat_FL, v_lon_FL_smooth_abs) - delta
@@ -763,14 +751,6 @@ def fdyn10_model(xdot: MX, x: MX, u: MX, p: MX) -> AcadosModel:
     F_lat_FR = F_lat_star_FR
     F_lat_RL = F_lat_star_RL
     F_lat_RR = F_lat_star_RR
-    # F_lon_FL = F_lon_star_FL * smooth_abs(s_FL) / hypot(s_FL, tan(alpha_FL))
-    # F_lon_FR = F_lon_star_FR * smooth_abs(s_FR) / hypot(s_FR, tan(alpha_FR))
-    # F_lon_RL = F_lon_star_RL * smooth_abs(s_RL) / hypot(s_RL, tan(alpha_RL))
-    # F_lon_RR = F_lon_star_RR * smooth_abs(s_RR) / hypot(s_RR, tan(alpha_RR))
-    # F_lat_FL = F_lat_star_FL * smooth_abs(tan(alpha_FL)) / hypot(s_FL, tan(alpha_FL))
-    # F_lat_FR = F_lat_star_FR * smooth_abs(tan(alpha_FR)) / hypot(s_FR, tan(alpha_FR))
-    # F_lat_RL = F_lat_star_RL * smooth_abs(tan(alpha_RL)) / hypot(s_RL, tan(alpha_RL))
-    # F_lat_RR = F_lat_star_RR * smooth_abs(tan(alpha_RR)) / hypot(s_RR, tan(alpha_RR))
 
     # frenet frame dynamics
     spline_dims = p.shape[0] // 2

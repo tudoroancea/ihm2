@@ -153,6 +153,7 @@ def main():
     R = np.array([1.0, 100.0])
     Rdu = np.array([0.0, 500.0])
     s_ref_Nf = 40.0
+    use_dyn10 = False
 
     # perform offline motion plan #########################################################
     track = Track("fsds_competition_1")
@@ -205,7 +206,7 @@ def main():
     sim_opts = AcadosSimOpts()
     sim_opts.T = dt
     sim_opts.num_stages = 4
-    sim_opts.num_steps = 100
+    sim_opts.num_steps = 50
     sim_opts.integrator_type = "IRK"
     sim_opts.collocation_type = "GAUSS_RADAU_IIA"
     sim_solver = generate_sim_solver(
@@ -221,13 +222,13 @@ def main():
     sim_solver_fdyn6 = generate_sim_solver(
         model_fdyn6, sim_opts, "generated", generate=True, build=True
     )
-    nx = 15
-    nu = 5
+    nx_dyn10 = 15
+    nu_dyn10 = 5
     model_fdyn10 = get_acados_model_from_implicit_dynamics(
         name="fdyn10",
         continuous_model_fn=fdyn10_model,
-        x=MX.sym("x", nx),
-        u=MX.sym("u", nu),
+        x=MX.sym("x", nx_dyn10),
+        u=MX.sym("u", nu_dyn10),
         p=MX.sym("p", 3 * 2 * NUMBER_SPLINE_INTERVALS),
     )
 
@@ -257,7 +258,7 @@ def main():
     # mpc_solver.set(0, "x", )
 
     # initialize data arrays ############################################################
-    x = [np.zeros(nx)]
+    x = [np.zeros(nx_dyn10 if use_dyn10 else nx)]
     x[0][0] = -6.0  # initial track progress
     u = []
     # x_pred = [
@@ -331,42 +332,27 @@ def main():
 
         # sim step
         try:
-            # beta = np.arctan(0.5 * np.tan(x[-1][7]))
-            # x.append(
-            #     sim_solver.simulate(x[-1], u[-1])
-            #     if np.square(np.hypot(x[-1][3], x[-1][4])) * np.sin(beta) / l_R <= 3.0
-            #     else sim_solver_fdyn6.simulate(x[-1], u[-1])
-            # )
-            new_x = sim_solver_fdyn10.simulate(
-                np.array(
-                    [
-                        x[-1][0],  # s
-                        x[-1][1],  # n
-                        x[-1][2],  # psi
-                        x[-1][3],  # v_x
-                        x[-1][4],  # v_y
-                        x[-1][5],  # r
-                        x[-1][6],  # omega_FL
-                        x[-1][7],  # omega_FR
-                        x[-1][8],  # omega_RL
-                        x[-1][9],  # omega_RR
-                        x[-1][10],  # tau_FL
-                        x[-1][11],  # tau_FR
-                        x[-1][12],  # tau_RL
-                        x[-1][13],  # tau_RR
-                        x[-1][14],  # delta
-                    ],
-                ),
-                np.array(
-                    [
-                        0.25 * u[-1][0],  # u_tau_FL
-                        0.25 * u[-1][0],  # u_tau_FR
-                        0.25 * u[-1][0],  # u_tau_RL
-                        0.25 * u[-1][0],  # u_tau_RR
-                        u[-1][1],  # u_delta
-                    ]
-                ),
-            )
+            if use_dyn10:
+                new_x = sim_solver_fdyn10.simulate(
+                    x[-1],
+                    np.array(
+                        [
+                            0.25 * u[-1][0],  # u_tau_FL
+                            0.25 * u[-1][0],  # u_tau_FR
+                            0.25 * u[-1][0],  # u_tau_RL
+                            0.25 * u[-1][0],  # u_tau_RR
+                            u[-1][1],  # u_delta
+                        ]
+                    ),
+                )
+            else:
+                beta = np.arctan(0.5 * np.tan(x[-1][7]))
+                new_x = (
+                    sim_solver.simulate(x[-1], u[-1])
+                    if np.square(np.hypot(x[-1][3], x[-1][4])) * np.sin(beta) / l_R
+                    <= 3.0
+                    else sim_solver_fdyn6.simulate(x[-1], u[-1])
+                )
             if np.any(np.isnan(new_x)):
                 raise Exception
             x.append(new_x)
@@ -400,30 +386,31 @@ def main():
     def smooth_abs_nonzero(x: np.ndarray) -> np.ndarray:
         return smooth_abs(x) + 1e-3 * np.exp(-x * x)
 
-    v_x = x[:, 3]
-    v_y = x[:, 4]
-    r = x[:, 5]
-    delta = x[:, 14]
-    omega_FL = x[:, 6]
-    omega_FR = x[:, 7]
-    omega_RL = x[:, 8]
-    omega_RR = x[:, 9]
-    v_x_FL = v_x - 0.5 * front_axle_track * r
-    v_y_FL = v_y + l_F * r
-    v_x_FR = v_x + 0.5 * front_axle_track * r
-    v_y_FR = v_y + l_F * r
-    v_lon_FL = np.cos(delta) * v_x_FL + np.sin(delta) * v_y_FL
-    v_lon_FR = np.cos(delta) * v_x_FR + np.sin(delta) * v_y_FR
-    v_lon_RL = v_x - 0.5 * rear_axle_track * r
-    v_lon_RR = v_x + 0.5 * rear_axle_track * r
-    v_lon_FL_smooth_abs = smooth_abs_nonzero(v_lon_FL)
-    v_lon_FR_smooth_abs = smooth_abs_nonzero(v_lon_FR)
-    v_lon_RL_smooth_abs = smooth_abs_nonzero(v_lon_RL)
-    v_lon_RR_smooth_abs = smooth_abs_nonzero(v_lon_RR)
-    s_FL = (omega_FL * R_w - v_lon_FL) / v_lon_FL_smooth_abs
-    s_FR = (omega_FR * R_w - v_lon_FR) / v_lon_FR_smooth_abs
-    s_RL = (omega_RL * R_w - v_lon_RL) / v_lon_RL_smooth_abs
-    s_RR = (omega_RR * R_w - v_lon_RR) / v_lon_RR_smooth_abs
+    if use_dyn10:
+        v_x = x[:, 3]
+        v_y = x[:, 4]
+        r = x[:, 5]
+        delta = x[:, 14]
+        omega_FL = x[:, 6]
+        omega_FR = x[:, 7]
+        omega_RL = x[:, 8]
+        omega_RR = x[:, 9]
+        v_x_FL = v_x - 0.5 * front_axle_track * r
+        v_y_FL = v_y + l_F * r
+        v_x_FR = v_x + 0.5 * front_axle_track * r
+        v_y_FR = v_y + l_F * r
+        v_lon_FL = np.cos(delta) * v_x_FL + np.sin(delta) * v_y_FL
+        v_lon_FR = np.cos(delta) * v_x_FR + np.sin(delta) * v_y_FR
+        v_lon_RL = v_x - 0.5 * rear_axle_track * r
+        v_lon_RR = v_x + 0.5 * rear_axle_track * r
+        v_lon_FL_smooth_abs = smooth_abs_nonzero(v_lon_FL)
+        v_lon_FR_smooth_abs = smooth_abs_nonzero(v_lon_FR)
+        v_lon_RL_smooth_abs = smooth_abs_nonzero(v_lon_RL)
+        v_lon_RR_smooth_abs = smooth_abs_nonzero(v_lon_RR)
+        s_FL = (omega_FL * R_w - v_lon_FL) / v_lon_FL_smooth_abs
+        s_FR = (omega_FR * R_w - v_lon_FR) / v_lon_FR_smooth_abs
+        s_RL = (omega_RL * R_w - v_lon_RL) / v_lon_RL_smooth_abs
+        s_RR = (omega_RR * R_w - v_lon_RR) / v_lon_RR_smooth_abs
 
     # find where there are big jumps in s to find start and end of lap
     idx = np.argwhere(
@@ -461,7 +448,7 @@ def main():
 
     fig = plt.figure(figsize=(12, 8))
     axes = {}
-    gridshape = (4, 3)
+    gridshape = (4 if use_dyn10 else 3, 3)
     axes["XY"] = plt.subplot2grid(gridshape, (0, 0), rowspan=2, fig=fig)
     axes["XY"].scatter(
         track.blue_cones[:, 0], track.blue_cones[:, 1], s=14, c=blue, marker="^"
@@ -523,11 +510,18 @@ def main():
             "data": {
                 "min": -model_bounds.T_max,
                 "max": model_bounds.T_max,
-                # "past_state": x[:, 6],
-                # "past_control": u[:, 0],
-                "past_state": np.sum(x[:, 10:14], axis=1),
-                "past_control": np.sum(u[:, :4], axis=1),
-            },
+            }
+            | (
+                {
+                    "past_state": np.sum(x[:, 10:14], axis=1),
+                    "past_control": np.sum(u[:, :4], axis=1),
+                }
+                if use_dyn10
+                else {
+                    "past_state": x[:, 6],
+                    "past_control": u[:, 0],
+                }
+            ),
         },
         "delta": {
             "loc": (2, 2),
@@ -539,31 +533,36 @@ def main():
                 "past_control": u[:, -1],
             },
         },
-        "omega": {
-            "loc": (3, 0),
-            "title": r"$\omega$ [rad/s]",
-            "data": {
-                "min": np.nan,
-                "max": np.nan,
-                "FL": x[:, 6],
-                "FR": x[:, 7],
-                "RL": x[:, 8],
-                "RR": x[:, 9],
+    } | (
+        {
+            "omega": {
+                "loc": (3, 0),
+                "title": r"$\omega$ [rad/s]",
+                "data": {
+                    "min": np.nan,
+                    "max": np.nan,
+                    "FL": x[:, 6],
+                    "FR": x[:, 7],
+                    "RL": x[:, 8],
+                    "RR": x[:, 9],
+                },
             },
-        },
-        "s": {
-            "loc": (3, 1),
-            "title": r"$s$ [1]",
-            "data": {
-                "min": np.nan,
-                "max": np.nan,
-                "FL": s_FL,
-                "FR": s_FR,
-                "RL": s_RL,
-                "RR": s_RR,
+            "s": {
+                "loc": (3, 1),
+                "title": r"$s$ [1]",
+                "data": {
+                    "min": np.nan,
+                    "max": np.nan,
+                    "FL": s_FL,
+                    "FR": s_FR,
+                    "RL": s_RL,
+                    "RR": s_RR,
+                },
             },
-        },
-    }
+        }
+        if use_dyn10
+        else {}
+    )
     sharedx_ax = None
     for ax_name, ax_data in layout.items():
         ic(ax_name)

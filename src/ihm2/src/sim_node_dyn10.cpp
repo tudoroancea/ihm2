@@ -1,8 +1,7 @@
-// Copyright (c) 2023. Tudor Oancea
+// Copyright (c) 2024. Tudor Oancea
 #include "acados/utils/math.h"
 #include "acados_c/sim_interface.h"
-#include "acados_sim_solver_ihm2_dyn6.h"
-#include "acados_sim_solver_ihm2_kin6.h"
+#include "acados_sim_solver_ihm2_dyn10.h"
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "curl/curl.h"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
@@ -112,16 +111,11 @@ private:
     geometry_msgs::msg::TransformStamped transform;
 
     // acados sim solver variables
-    void* kin6_sim_capsule;
-    sim_config* kin6_sim_config;
-    sim_in* kin6_sim_in;
-    sim_out* kin6_sim_out;
-    void* kin6_sim_dims;
-    void* dyn6_sim_capsule;
-    sim_config* dyn6_sim_config;
-    sim_in* dyn6_sim_in;
-    sim_out* dyn6_sim_out;
-    void* dyn6_sim_dims;
+    void* dyn10_sim_capsule;
+    sim_config* dyn10_sim_config;
+    sim_in* dyn10_sim_in;
+    sim_out* dyn10_sim_out;
+    void* dyn10_sim_dims;
 
     // cones
     visualization_msgs::msg::MarkerArray cones_marker_array;
@@ -197,57 +191,34 @@ private:
     void sim_timer_cb() {
         auto start = this->now();
         // depending on the last velocity v=sqrt(v_x^2+v_y^2), decide which model to use and set its inputs
-        bool use_kin6(std::hypot(x[3], x[4]) < this->get_parameter("v_dyn").as_double());
         try {
-            if (use_kin6) {
-                sim_in_set(kin6_sim_config,
-                           kin6_sim_dims,
-                           kin6_sim_in,
-                           "x",
-                           this->x);
-                sim_in_set(kin6_sim_config,
-                           kin6_sim_dims,
-                           kin6_sim_in,
-                           "u",
-                           this->u);
-            } else {
-                sim_in_set(dyn6_sim_config,
-                           dyn6_sim_dims,
-                           dyn6_sim_in,
-                           "x",
-                           this->x);
-                sim_in_set(dyn6_sim_config,
-                           dyn6_sim_dims,
-                           dyn6_sim_in,
-                           "u",
-                           this->u);
-            }
-
+            sim_in_set(dyn10_sim_config,
+                       dyn10_sim_dims,
+                       dyn10_sim_in,
+                       "x",
+                       this->x);
+            sim_in_set(dyn10_sim_config,
+                       dyn10_sim_dims,
+                       dyn10_sim_in,
+                       "u",
+                       this->u);
         } catch (const std::exception& e) {
             RCLCPP_ERROR(this->get_logger(), "Caught exception: %s", e.what());
         }
 
         // call sim solver
-        int status = (use_kin6) ? ihm2_kin6_acados_sim_solve((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule) : ihm2_dyn6_acados_sim_solve((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
+        int status = ihm2_dyn10_acados_sim_solve((ihm2_dyn10_sim_solver_capsule*) dyn10_sim_capsule);
         if (status != ACADOS_SUCCESS) {
-            throw FatalNodeError("acados_solve() failed with status " + std::to_string(status) + " for solver " + (use_kin6 ? "kin6" : "dyn6") + ".");
+            throw FatalNodeError("acados_solve() failed with status " + std::to_string(status));
         }
 
         // get sim solver outputs
-        if (use_kin6) {
-            sim_out_get(kin6_sim_config,
-                        kin6_sim_dims,
-                        kin6_sim_out,
-                        "x",
-                        this->x);
-        } else {
-            sim_out_get(
-                    dyn6_sim_config,
-                    dyn6_sim_dims,
-                    dyn6_sim_out,
-                    "x",
-                    this->x);
-        }
+        sim_out_get(
+                dyn10_sim_config,
+                dyn10_sim_dims,
+                dyn10_sim_out,
+                "x",
+                this->x);
 
         // prohibit the car from going backwards
         if (x[3] < 0.0 or (x[nx - 2] <= 0.1 and x[3] < 0.01)) {
@@ -317,11 +288,6 @@ private:
         track_name_kv.key = "track name";
         track_name_kv.value = this->get_parameter("track_name_or_file").as_string();
         diag_msg.status[0].values.push_back(track_name_kv);
-
-        diagnostic_msgs::msg::KeyValue model_kv;
-        model_kv.key = "model";
-        model_kv.value = use_kin6 ? "kin6" : "dyn6";
-        diag_msg.status[0].values.push_back(model_kv);
 
         diagnostic_msgs::msg::KeyValue last_lap_time_kv;
         last_lap_time_kv.key = "last lap time (s)";
@@ -591,8 +557,8 @@ public:
         this->declare_parameter<std::string>("car_mesh", "ariane.stl");
 
         // initialize x and u with zeros
-        nx = IHM2_DYN6_NX;
-        nu = IHM2_DYN6_NU;
+        nx = IHM2_DYN10_NX;
+        nu = IHM2_DYN10_NU;
         x = (double*) malloc(sizeof(double) * nx);
         u = (double*) malloc(sizeof(double) * nu);
         this->reset_srv_cb(nullptr, nullptr);
@@ -602,25 +568,16 @@ public:
         // (we assume we won't lose it)
         this->has_internet = is_internet_connected();
 
-        // load acados sim solvers (for kin6 and dyn6 models)
-        kin6_sim_capsule = ihm2_kin6_acados_sim_solver_create_capsule();
-        dyn6_sim_capsule = ihm2_dyn6_acados_sim_solver_create_capsule();
-        int status = ihm2_kin6_acados_sim_create((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule);
+        // load acados sim solvers
+        dyn10_sim_capsule = ihm2_dyn10_acados_sim_solver_create_capsule();
+        int status = ihm2_dyn10_acados_sim_create((ihm2_dyn10_sim_solver_capsule*) dyn10_sim_capsule);
         if (status) {
-            throw FatalNodeError("ihm2_kin6_acados_sim_create() returned status " + std::to_string(status));
+            throw FatalNodeError("ihm2_dyn10_acados_sim_create() returned status " + std::to_string(status));
         }
-        status = ihm2_dyn6_acados_sim_create((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
-        if (status) {
-            throw FatalNodeError("ihm2_dyn6_acados_sim_create() returned status " + std::to_string(status));
-        }
-        kin6_sim_config = ihm2_kin6_acados_get_sim_config((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule);
-        kin6_sim_in = ihm2_kin6_acados_get_sim_in((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule);
-        kin6_sim_out = ihm2_kin6_acados_get_sim_out((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule);
-        kin6_sim_dims = ihm2_kin6_acados_get_sim_dims((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule);
-        dyn6_sim_config = ihm2_dyn6_acados_get_sim_config((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
-        dyn6_sim_in = ihm2_dyn6_acados_get_sim_in((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
-        dyn6_sim_out = ihm2_dyn6_acados_get_sim_out((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
-        dyn6_sim_dims = ihm2_dyn6_acados_get_sim_dims((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
+        dyn10_sim_config = ihm2_dyn10_acados_get_sim_config((ihm2_dyn10_sim_solver_capsule*) dyn10_sim_capsule);
+        dyn10_sim_in = ihm2_dyn10_acados_get_sim_in((ihm2_dyn10_sim_solver_capsule*) dyn10_sim_capsule);
+        dyn10_sim_out = ihm2_dyn10_acados_get_sim_out((ihm2_dyn10_sim_solver_capsule*) dyn10_sim_capsule);
+        dyn10_sim_dims = ihm2_dyn10_acados_get_sim_dims((ihm2_dyn10_sim_solver_capsule*) dyn10_sim_capsule);
 
         // publishers
         this->viz_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("/ihm2/viz/sim", 10);
@@ -675,16 +632,11 @@ public:
     }
 
     ~SimNode() {
-        int status = ihm2_kin6_acados_sim_free((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule);
+        int status = ihm2_dyn10_acados_sim_free((ihm2_dyn10_sim_solver_capsule*) dyn10_sim_capsule);
         if (status) {
-            RCLCPP_WARN(this->get_logger(), "ihm2_kin6_acados_sim_free() returned status %d.", status);
+            RCLCPP_WARN(this->get_logger(), "ihm2_dyn10_acados_sim_free() returned status %d.", status);
         }
-        status = ihm2_dyn6_acados_sim_free((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
-        if (status) {
-            RCLCPP_WARN(this->get_logger(), "ihm2_dyn6_acados_sim_free() returned status %d.", status);
-        }
-        ihm2_kin6_acados_sim_solver_free_capsule((ihm2_kin6_sim_solver_capsule*) kin6_sim_capsule);
-        ihm2_dyn6_acados_sim_solver_free_capsule((ihm2_dyn6_sim_solver_capsule*) dyn6_sim_capsule);
+        ihm2_dyn10_acados_sim_solver_free_capsule((ihm2_dyn10_sim_solver_capsule*) dyn10_sim_capsule);
         free(x);
         free(u);
     }

@@ -4,10 +4,8 @@
 
 #include "eigen3/Eigen/Dense"
 #include "ihm2/common/cone_color.hpp"
-#include <cmath>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 // functions to load/save cones and center line from the track_database package ===========================================
 

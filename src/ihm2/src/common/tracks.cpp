@@ -1,7 +1,6 @@
 // Copyright (c) 2023. Tudor Oancea
 #include "ihm2/common/tracks.hpp"
 #include "ihm2/common/math.hpp"
-#include "ihm2/external/icecream.hpp"
 #include "ihm2/external/rapidcsv.hpp"
 #include <cmath>
 #include <filesystem>

@@ -257,7 +257,7 @@ private:
 public:
     MPCControlNode() : Node("mpc_control_node"), x_eigen(x), u_eigen(u) {
         // parameters
-        this->declare_parameter<std::string>("track_name_or_file", "fsds_competition_1");
+        this->declare_parameter<std::string>("track_name", "fsds_competition_1");
         this->declare_parameter<double>("s_ref_Nf", 30.0);
         auto Q_diag_data = this->declare_parameter<std::vector<double>>("Q_diag", {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
         auto R_diag_data = this->declare_parameter<std::vector<double>>("R_diag", {1.0, 1.0});
@@ -352,7 +352,7 @@ public:
 #ifdef TRACKS_PATH
         // create track instance from file
         std::string csv_track_file(TRACKS_PATH);
-        csv_track_file += "/" + this->get_parameter("track_name_or_file").as_string() + ".csv";
+        csv_track_file += "/" + this->get_parameter("track_name").as_string() + ".csv";
         RCLCPP_INFO(this->get_logger(), "Loading track from %s", csv_track_file.c_str());
         this->track = std::make_unique<Track>(csv_track_file);
 
@@ -395,7 +395,7 @@ public:
         viz_msg.markers.pop_back();
     }
 
-    ~MPCControlNode() {
+    ~MPCControlNode() override {
         int status = ihm2_fkin6_acados_free(acados_ocp_capsule);
         if (status) {
             RCLCPP_ERROR(this->get_logger(), "ihm2_fkin6_acados_free() returned status %d. \n", status);

@@ -432,10 +432,13 @@ def gen_dyn10_model() -> AcadosModel:
     F_lat_star_RL = F_z_RL * mu_lat_RL
     F_lat_star_RR = F_z_RR * mu_lat_RR
 
-    s_FL = omega_FL * R_w / v_x_FL - 1.0
-    s_FR = omega_FR * R_w / v_x_FR - 1.0
-    s_RL = omega_RL * R_w / v_x_RL - 1.0
-    s_RR = omega_RR * R_w / v_x_RR - 1.0
+    def smooth_abs_min(x: sym_t):
+        return smooth_abs(x) + 1e-5 * exp(-x * x)
+
+    s_FL = (omega_FL * R_w - v_x_FL) / smooth_abs_min(v_x_FL)
+    s_FR = (omega_FR * R_w - v_x_FR) / smooth_abs_min(v_x_FR)
+    s_RL = (omega_RL * R_w - v_x_RL) / smooth_abs_min(v_x_RL)
+    s_RR = (omega_RR * R_w - v_x_RR) / smooth_abs_min(v_x_RR)
 
     mu_lon_FL = Ds * sin(Cs * atan(Bs * s_FL - Es * (Bs * s_FL - atan(Bs * s_FL))))
     mu_lon_FR = Ds * sin(Cs * atan(Bs * s_FR - Es * (Bs * s_FR - atan(Bs * s_FR))))
@@ -555,15 +558,15 @@ def main():
     print(f"Generating Dyn6 sim solver took: {t1 - t0:.3f} s")
 
     # dyn10 model
-    # t0 = perf_counter()
-    # generate_sim_solver(
-    #     gen_dyn10_model(),
-    #     sim_solver_opts,
-    #     gen_code_dir + "/ihm2_dyn10_sim_gen_code",
-    #     gen_code_dir + "/ihm2_dyn10_sim.json",
-    # )
-    # t1 = perf_counter()
-    # print(f"Generating Dyn10 sim solver took: {t1 - t0:.3f} s")
+    t0 = perf_counter()
+    generate_sim_solver(
+        gen_dyn10_model(),
+        sim_solver_opts,
+        gen_code_dir + "/ihm2_dyn10_sim_gen_code",
+        gen_code_dir + "/ihm2_dyn10_sim.json",
+    )
+    t1 = perf_counter()
+    print(f"Generating Dyn10 sim solver took: {t1 - t0:.3f} s")
 
     print("")
 
@@ -611,4 +614,3 @@ def gen():
 
 if __name__ == "__main__":
     main()
-    # gen()

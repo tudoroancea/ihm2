@@ -28,7 +28,7 @@ find_library(ACADOS_LIB acados PATHS "${ACADOS_PATH}/lib")
 
 # define paths for tracks
 add_compile_definitions(TRACK_DATABASE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../track-database/track_database/data")
-add_compile_definitions(TRACKS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tracks")
+add_compile_definitions(TRACKS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/generated/tracks")
 
 # ocp and sim json
 add_compile_definitions(OCP_JSON_PATH=" ${CMAKE_CURRENT_SOURCE_DIR}/../../ihm2_ocp.json ")
@@ -38,7 +38,9 @@ if(DEFINED ENV{WSLENV})
   add_compile_definitions(WSL)
 endif()
 
-# generate custom message and service types
+####################################################################################################
+# custom message and service types
+####################################################################################################
 set(msg_files
   "msg/Controls.msg"
   "msg/State.msg"
@@ -50,7 +52,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 )
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
 
+####################################################################################################
 # ihm2 common
+####################################################################################################
 ament_auto_add_library(ihm2_common SHARED
   include/ihm2/external/rapidcsv.hpp
   include/ihm2/external/icecream.hpp
@@ -65,7 +69,9 @@ ament_auto_add_library(ihm2_common SHARED
 )
 target_link_libraries(ihm2_common Eigen3::Eigen nlohmann_json::nlohmann_json)
 
-# generate sim node
+####################################################################################################
+# sim node
+####################################################################################################
 find_library(IHM2_KIN6_SIM_LIB acados_sim_solver_ihm2_kin6 PATHS "generated/ihm2_kin6_sim_gen_code")
 find_library(IHM2_DYN6_SIM_LIB acados_sim_solver_ihm2_dyn6 PATHS "generated/ihm2_dyn6_sim_gen_code")
 message(STATUS "IHM2_KIN6_SIM_LIB: ${IHM2_KIN6_SIM_LIB}")
@@ -88,7 +94,29 @@ target_include_directories(sim_node PUBLIC
   "generated/ihm2_dyn6_sim_gen_code/ihm2_dyn6_model"
 )
 
+####################################################################################################
+# sim node with dyn10
+####################################################################################################
+find_library(IHM2_DYN10_SIM_LIB acados_sim_solver_ihm2_dyn10 PATHS "generated/ihm2_dyn10_sim_gen_code")
+message(STATUS "IHM2_DYN10_SIM_LIB: ${IHM2_DYN10_SIM_LIB}")
+ament_auto_add_executable(sim_node_dyn10 src/sim_node_dyn10.cpp)
+target_link_libraries(sim_node_dyn10
+  "${cpp_typesupport_target}" # for custom message and service types defined in this package
+  ${ACADOS_LIB} # acados library
+  ${IHM2_DYN10_SIM_LIB} # acados sim solver generated code
+  ihm2_common # ihm2 common library
+  CURL::libcurl
+)
+target_include_directories(sim_node_dyn10 PUBLIC
+  "${ACADOS_PATH}/include"
+  "${ACADOS_PATH}/include/acados"
+  "generated/ihm2_dyn10_sim_gen_code"
+  "generated/ihm2_dyn10_sim_gen_code/ihm2_dyn6_model"
+)
+
+####################################################################################################
 # stanley control node
+####################################################################################################
 ament_auto_add_executable(stanley_control_node src/stanley_control_node.cpp)
 target_link_libraries(stanley_control_node
   "${cpp_typesupport_target}" # for custom message and service types defined in this package
@@ -105,7 +133,9 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}/
 )
 
-# generate control node
+####################################################################################################
+# mpc control node
+####################################################################################################
 find_library(IHM2_FKIN6_MPC_LIB acados_ocp_solver_ihm2_fkin6 PATHS "${CMAKE_CURRENT_SOURCE_DIR}/generated/ihm2_fkin6_mpc_gen_code")
 find_library(IHM2_FKIN6_SIM_LIB acados_sim_solver_ihm2_fkin6 PATHS "${CMAKE_CURRENT_SOURCE_DIR}/generated/ihm2_fkin6_mpc_gen_code")
 message(STATUS "IHM2_FKIN6_MPC_LIB: ${IHM2_FKIN6_MPC_LIB}, IHM_FKIN6_SIM_LIB: ${IHM2_FKIN6_SIM_LIB}")

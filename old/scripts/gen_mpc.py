@@ -1,5 +1,4 @@
 # Copyright (c) 2023. Tudor Oancea
-
 from time import perf_counter
 from casadi import (
     cos,
@@ -358,7 +357,7 @@ def main():
     print("* Generating acados OCP solver *******************")
     print("**************************************************\n")
     start = perf_counter()
-    file = "src/ihm2/tracks/fsds_competition_1.csv"
+    file = "src/ihm2/generated/tracks/fsds_competition_1.csv"
     data = np.loadtxt(file, delimiter=",", skiprows=1)
     s_ref = data[:, 0]
     right_width = data[0, -2]

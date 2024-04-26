@@ -1,4 +1,4 @@
-# Copyright (c) 2023. Tudor Oancea 
+# Copyright (c) 2023. Tudor Oancea
 # check that the script is run from the root of the ihm2 repository
 if [ $(basename "$PWD") != "ihm2" ]; then
     echo "Please run this script from the root of the ihm2 repository"
@@ -23,8 +23,10 @@ PYTHONWARNINGS=ignore:::setuptools.command.install,ignore:::setuptools.command.e
 
 # add stuff to DYLD_LIBRARY_PATH
 echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_dyn6_sim_gen_code" >> $(pwd)/install/setup.sh
+echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_dyn10_sim_gen_code" >> $(pwd)/install/setup.sh
 echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_kin6_sim_gen_code" >> $(pwd)/install/setup.sh
 echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_fkin6_mpc_gen_code" >> $(pwd)/install/setup.sh
 echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_dyn6_sim_gen_code" >> $(pwd)/install/setup.sh
+echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_dyn10_sim_gen_code" >> $(pwd)/install/setup.sh
 echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_kin6_sim_gen_code" >> $(pwd)/install/setup.sh
 echo "export DYLD_LIBRARY_PATH=\$DYLD_LIBRARY_PATH:$(pwd)/src/ihm2/generated/ihm2_fkin6_mpc_gen_code" >> $(pwd)/install/setup.sh

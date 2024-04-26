@@ -1,43 +1,43 @@
-# Copyright (c) 2023. Tudor Oancea
+# Copyright (c) 2024. Tudor Oancea
 import os
-from time import perf_counter
+import sys
+from dataclasses import dataclass
+
 import matplotlib.pyplot as plt
 import numpy as np
-from icecream import ic
+from pydantic import BaseModel
+
+# from pydantic.dataclasses import dataclass
+from qpsolvers import available_solvers, solve_qp
+from scipy.sparse import csc_array
+from scipy.sparse import eye as speye
+from scipy.sparse import kron as spkron
 from track_database import Track
 from track_database.utils import plot_cones
-from scipy.sparse import csc_array, eye as speye, kron as spkron
-from qpsolvers import solve_qp, available_solvers
-import sys
+from utils import unwrap_to_pi
+
+__all__ = [
+    "NUMBER_SPLINE_INTERVALS",
+    "MotionPlan",
+    "offline_motion_plan",
+    "plot_motion_plan",
+    "generate_track_data_file",
+]
+NUMBER_SPLINE_INTERVALS = 500
 
 
-def teds_projection(x, a):
-    """Projection of x onto the interval [a, a + 2*pi)"""
-    return np.mod(x - a, 2 * np.pi) + a
-
-
-def wrapToPi(x):
-    """Wrap angles to [-pi, pi)"""
-    return teds_projection(x, -np.pi)
-
-
-def unwrapToPi(x):
-    # remove discontinuities caused by wrapToPi
-    diffs = np.diff(x)
-    diffs[diffs > 1.5 * np.pi] -= 2 * np.pi
-    diffs[diffs < -1.5 * np.pi] += 2 * np.pi
-    return np.insert(x[0] + np.cumsum(diffs), 0, x[0])
-
-
-def my_calc_splines(
-    path: np.ndarray, q: float = 1.0, return_errs: bool = False, qp_solver="proxqp"
-):
+def fit_spline(
+    path: np.ndarray,
+    curv_weight: float = 1.0,
+    return_errs: bool = False,
+    qp_solver: str = "proxqp",
+) -> tuple[np.ndarray, np.ndarray]:
     """
     computes the coefficients of each spline portion of the path.
-    > Note: the path is assumed to be closed but the first and last points are NOT the same
+    > Note: the path is assumed to be closed but the first and last points are NOT the same.
 
     :param path: Nx2 array of points
-    :param q: weight of the curvature term in the cost function
+    :param curv_weight: weight of the curvature term in the cost function
     :returns p_X, p_Y: Nx4 arrays of coefficients of the splines in the x and y directions
                        (each row correspond to a_i, b_i, c_i, d_i coefficients of the i-th spline portion)
     """
@@ -95,7 +95,7 @@ def my_calc_splines(
         ),
         shape=(N, 4 * N),
     )
-    P = B.T @ B + q * C.T @ C + 1e-10 * speye(4 * N, format="csc")
+    P = B.T @ B + curv_weight * C.T @ C + 1e-10 * speye(4 * N, format="csc")
     q = -B.T @ path
     b = np.zeros(3 * N)
 
@@ -135,15 +135,15 @@ def check_spline_coeffs_dims(coeffs_X: np.ndarray, coeffs_Y: np.ndarray):
     ), f"coeffs_X and coeffs_Y must have the same length but have lengths {coeffs_X.shape[0]} and {coeffs_Y.shape[0]}"
 
 
-def my_calc_spline_lengths(
+def compute_spline_interval_lengths(
     coeffs_X: np.ndarray, coeffs_Y: np.ndarray, no_interp_points=100
 ):
     """
     computes the lengths of each spline portion of the path.
     > Note: Here the closeness of the part does not matter, it is contained in the coefficients
 
-    :param coeff_X: Nx4 array of coefficients of the splines in the x direction (as returned by my_calc_splines)
-    :param coeff_Y: Nx4 array of coefficients of the splines in the y direction (as returned by my_calc_splines)
+    :param coeff_X: Nx4 array of coefficients of the splines in the x direction (as returned by calc_splines)
+    :param coeff_Y: Nx4 array of coefficients of the splines in the y direction (as returned by calc_splines)
     :param delta_s: number of points to use on each spline portion for the interpolation
     """
     check_spline_coeffs_dims(coeffs_X, coeffs_Y)
@@ -176,7 +176,7 @@ def my_calc_spline_lengths(
     return delta_s
 
 
-def my_interp_splines(
+def uniformly_sample_spline(
     coeffs_X: np.ndarray,
     coeffs_Y: np.ndarray,
     delta_s: np.ndarray,
@@ -187,9 +187,9 @@ def my_interp_splines(
     The first point will always be the initial point of the first spline portion, and
     the last point will NOT be the initial point of the first spline portion.
 
-    :param coeffs_X: Nx4 array of coefficients of the splines in the x direction (as returned by my_calc_splines)
-    :param coeffs_Y: Nx4 array of coefficients of the splines in the y direction (as returned by my_calc_splines)
-    :param spline_lengths: N array of lengths of the spline portions (as returned by my_calc_spline_lengths)
+    :param coeffs_X: Nx4 array of coefficients of the splines in the x direction (as returned by calc_splines)
+    :param coeffs_Y: Nx4 array of coefficients of the splines in the y direction (as returned by calc_splines)
+    :param spline_lengths: N array of lengths of the spline portions (as returned by calc_spline_lengths)
     :param n_samples: number of points to sample
 
     :return XY_interp: n_samplesx2 array of points along the path
@@ -204,7 +204,8 @@ def my_interp_splines(
     idx_interp = np.argmax(s_interp[:, np.newaxis] < s, axis=1)
 
     t_interp = np.zeros(n_samples)  # save t values
-    XY_interp = np.zeros((n_samples, 2))  # raceline coords (x, y) array
+    X_interp = np.zeros(n_samples)  # raceline coords
+    Y_interp = np.zeros(n_samples)  # raceline coords
 
     # get spline t value depending on the progress within the current element
     t_interp[idx_interp > 0] = (
@@ -213,24 +214,24 @@ def my_interp_splines(
     t_interp[idx_interp == 0] = s_interp[idx_interp == 0] / delta_s[0]
 
     # calculate coords
-    XY_interp[:, 0] = (
+    X_interp = (
         coeffs_X[idx_interp, 0]
         + coeffs_X[idx_interp, 1] * t_interp
         + coeffs_X[idx_interp, 2] * np.power(t_interp, 2)
         + coeffs_X[idx_interp, 3] * np.power(t_interp, 3)
     )
 
-    XY_interp[:, 1] = (
+    Y_interp = (
         coeffs_Y[idx_interp, 0]
         + coeffs_Y[idx_interp, 1] * t_interp
         + coeffs_Y[idx_interp, 2] * np.power(t_interp, 2)
         + coeffs_Y[idx_interp, 3] * np.power(t_interp, 3)
     )
 
-    return XY_interp, idx_interp, t_interp, s_interp
+    return X_interp, Y_interp, idx_interp, t_interp, s_interp
 
 
-def calc_heading_curvature(
+def get_heading_curvature(
     coeffs_X: np.ndarray,
     coeffs_Y: np.ndarray,
     idx_interp: np.ndarray,
@@ -240,8 +241,8 @@ def calc_heading_curvature(
     analytically computes the heading and the curvature at each point along the path
     specified by idx_interp and t_interp.
 
-    :param coeffs_X: Nx4 array of coefficients of the splines in the x direction (as returned by my_calc_splines)
-    :param coeffs_Y: Nx4 array of coefficients of the splines in the y direction (as returned by my_calc_splines)
+    :param coeffs_X: Nx4 array of coefficients of the splines in the x direction (as returned by calc_splines)
+    :param coeffs_Y: Nx4 array of coefficients of the splines in the y direction (as returned by calc_splines)
     :param idx_interp: n_samples array of indices of the spline portions that host the points
     :param t_interp: n_samples array of t values of the points within their respective spline portions
     """
@@ -268,12 +269,64 @@ def calc_heading_curvature(
     return phi, kappa
 
 
-def generate_track_file(
-    track_name="fsds_competition_1",
-    outfile="src/ihm2/tracks/fsds_competition_1.csv",
-    plot=False,
-    n_samples=5000,
-):
+@dataclass
+class MotionPlan:
+    s_ref: np.ndarray
+    X_ref: np.ndarray
+    Y_ref: np.ndarray
+    phi_ref: np.ndarray
+    kappa_ref: np.ndarray
+    right_widths: np.ndarray
+    left_widths: np.ndarray
+    lap_length: float
+
+
+def plot_motion_plan(
+    motion_plan: MotionPlan, track: Track, plot_title: str = ""
+) -> None:
+    plt.figure()
+    plt.plot(motion_plan.s_ref, unwrap_to_pi(motion_plan.phi_ref), label="headings")
+    plt.legend()
+    plt.xlabel("track progress [m]")
+    plt.ylabel("heading [rad]")
+    plt.tight_layout()
+    plt.title(plot_title + " : reference heading/yaw profile")
+
+    plt.figure()
+    plt.plot(motion_plan.s_ref, motion_plan.kappa_ref, label="curvatures")
+    plt.xlabel("track progress [m]")
+    plt.ylabel("curvature [1/m]")
+    plt.legend()
+    plt.tight_layout()
+    plt.title(plot_title + " : reference curvature profile")
+
+    plt.figure()
+    plot_cones(
+        track.blue_cones,
+        track.yellow_cones,
+        track.big_orange_cones,
+        track.small_orange_cones,
+        show=False,
+    )
+    plt.plot(motion_plan.X_ref, motion_plan.Y_ref, label="reference trajectory")
+    plt.scatter(
+        track.center_line[:, 0],
+        track.center_line[:, 1],
+        s=14,
+        c="k",
+        marker="x",
+        label="center line",
+    )
+    plt.legend()
+    plt.tight_layout()
+    plt.title(plot_title + " : reference trajectory")
+
+
+def offline_motion_plan(
+    track: str | Track,
+    n_samples: int = NUMBER_SPLINE_INTERVALS,
+) -> MotionPlan:
+    # s_ref, X_ref, Y_ref, phi_ref, kappa_ref, right_widths, left_widths
     # before: we fit the splines and re-sample points more finely distributed than
     # the original track points (roughly every 0.1m), all with the same function call
     #
@@ -281,116 +334,109 @@ def generate_track_file(
     # (per the regulations, FS tracks have total lengths between 200m and 500m,
     # we therefore sample 500/0.1=5000 points to always have at most roughly 10cm
     # between two consecutive points)
-    track = Track(track_name)
-    coeffs_X, coeffs_Y = my_calc_splines(
+    if isinstance(track, str):
+        track = Track(track)
+
+    coeffs_X, coeffs_Y = fit_spline(
         path=track.center_line,
-        q=2.0,
+        curv_weight=2.0,
         qp_solver=sys.argv[1] if len(sys.argv) > 1 else "proxqp",
+        return_errs=False,
     )
-    delta_s = my_calc_spline_lengths(coeffs_X=coeffs_X, coeffs_Y=coeffs_Y)
-    XY_ref, idx_interp, t_interp, s_ref = my_interp_splines(
+    delta_s = compute_spline_interval_lengths(coeffs_X=coeffs_X, coeffs_Y=coeffs_Y)
+    X_ref, Y_ref, idx_interp, t_interp, s_ref = uniformly_sample_spline(
         coeffs_X=coeffs_X,
         coeffs_Y=coeffs_Y,
         delta_s=delta_s,
         n_samples=n_samples,
     )
-    phi_ref, kappa_ref = calc_heading_curvature(
+    phi_ref, kappa_ref = get_heading_curvature(
         coeffs_X=coeffs_X,
         coeffs_Y=coeffs_Y,
         idx_interp=idx_interp,
         t_interp=t_interp,
     )
-    right_left_widths = np.tile(np.min(track.track_widths, axis=1), (n_samples, 1))
+    right_widths = np.tile(np.min(track.track_widths[:, 0]), n_samples)
+    left_widths = np.tile(np.min(track.track_widths[:, 1]), n_samples)
 
-    if plot:
-        plt.figure()
-        plt.plot(s_ref, unwrapToPi(phi_ref), label="headings")
-        plt.legend()
-        plt.figure()
-        plt.plot(s_ref, kappa_ref, label="curvatures")
-        plt.legend()
+    lap_length = s_ref[-1] + np.hypot(X_ref[-1] - X_ref[0], Y_ref[-1] - Y_ref[0])
 
-        plt.figure()
-        plot_cones(
-            track.blue_cones,
-            track.yellow_cones,
-            track.big_orange_cones,
-            track.small_orange_cones,
-            show=False,
-        )
-        plt.plot(XY_ref[:, 0], XY_ref[:, 1], label="reference")
-        plt.scatter(
-            track.center_line[:, 0],
-            track.center_line[:, 1],
-            s=14,
-            c="k",
-            marker="x",
-            label="center line",
-        )
-
-    total_length = s_ref[-1] + np.hypot(
-        XY_ref[-1, 0] - XY_ref[0, 0], XY_ref[-1, 1] - XY_ref[0, 1]
-    )
-    s_ref = np.hstack((s_ref - total_length, s_ref, s_ref + total_length))
-    XY_ref = np.vstack((XY_ref, XY_ref, XY_ref))
-    phi_ref = np.hstack((phi_ref, phi_ref, phi_ref))
-    kappa_ref = np.hstack((kappa_ref, kappa_ref, kappa_ref))
-    right_left_widths = np.vstack(
-        (right_left_widths, right_left_widths, right_left_widths)
+    return MotionPlan(
+        s_ref=s_ref,
+        X_ref=X_ref,
+        Y_ref=Y_ref,
+        phi_ref=phi_ref,
+        kappa_ref=kappa_ref,
+        right_widths=right_widths,
+        left_widths=left_widths,
+        lap_length=lap_length,
     )
 
-    if not os.path.exists(os.path.dirname(outfile)):
-        os.makedirs(os.path.dirname(outfile))
-    np.savetxt(
-        outfile,
-        np.array(
-            (
-                s_ref,
-                XY_ref[:, 0],
-                XY_ref[:, 1],
-                phi_ref,
-                kappa_ref,
-                right_left_widths[:, 0],
-                right_left_widths[:, 1],
-            )
-        ).T,
-        delimiter=",",
-        fmt="%.6f",
-    )
-    # open csv file and add header
-    with open(outfile, "r") as f:
-        lines = f.readlines()
-        lines.insert(
-            0,
-            "s_ref,X_ref,Y_ref,phi_ref,kappa_ref,right_width,left_width\n",
+
+def triple_motion_plan_ref(motion_plan: MotionPlan) -> MotionPlan:
+    motion_plan.s_ref = np.hstack(
+        (
+            motion_plan.s_ref - motion_plan.lap_length,
+            motion_plan.s_ref,
+            motion_plan.s_ref + motion_plan.lap_length,
         )
+    )
+    motion_plan.X_ref = np.hstack(
+        (motion_plan.X_ref, motion_plan.X_ref, motion_plan.X_ref)
+    )
+    motion_plan.Y_ref = np.hstack(
+        (motion_plan.Y_ref, motion_plan.Y_ref, motion_plan.Y_ref)
+    )
+    motion_plan.phi_ref = np.hstack(
+        (motion_plan.phi_ref, motion_plan.phi_ref, motion_plan.phi_ref)
+    )
+    motion_plan.kappa_ref = np.hstack(
+        (motion_plan.kappa_ref, motion_plan.kappa_ref, motion_plan.kappa_ref)
+    )
+    motion_plan.right_widths = np.hstack(
+        (motion_plan.right_widths, motion_plan.right_widths, motion_plan.right_widths)
+    )
+    motion_plan.left_widths = np.hstack(
+        (motion_plan.left_widths, motion_plan.left_widths, motion_plan.left_widths)
+    )
+    return motion_plan
+
+
+def generate_track_data_file(track_name: str, outfile: str) -> None:
+    motion_plan = offline_motion_plan(track_name)
+
+    parent_dir = os.path.dirname(outfile)
+    if not os.path.exists(parent_dir):
+        os.makedirs(parent_dir)
+
     with open(outfile, "w") as f:
-        f.writelines(lines)
-
-    if plot:
-        plt.show()
-
-
-def main():
-    print("**************************************************")
-    print("* Generating track files *************************")
-    print("**************************************************\n")
-    for track_name in [
-        "fsds_competition_1",
-        "fsds_competition_2",
-        "fsds_competition_3",
-    ]:
-        start = perf_counter()
-        generate_track_file(
-            track_name,
-            "src/ihm2/tracks/" + track_name + ".csv",
-            # plot=True,
-        )
-        print(
-            f"Generation of track {track_name} took {perf_counter() - start} seconds."
+        f.write("s_ref,X_ref,Y_ref,phi_ref,kappa_ref,right_width,left_width\n")
+    with open(outfile, "a") as f:
+        np.savetxt(
+            f,
+            np.column_stack(
+                (
+                    motion_plan.s_ref,
+                    motion_plan.X_ref,
+                    motion_plan.Y_ref,
+                    motion_plan.phi_ref,
+                    motion_plan.kappa_ref,
+                    motion_plan.right_widths,
+                    motion_plan.left_widths,
+                )
+            ),
+            delimiter=",",
+            fmt="%.6f",
         )
 
-    print("")
+
+def main() -> None:
+    track_name = "fsds_competition_1"
+    track = Track(track_name)
+    motion_plan = offline_motion_plan(track)
+    motion_plan = triple_motion_plan_ref(motion_plan)
+    plot_motion_plan(motion_plan, track, plot_title=track_name)
+    plt.show()
 
 
 if __name__ == "__main__":

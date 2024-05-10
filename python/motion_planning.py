@@ -5,9 +5,7 @@ from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 import numpy as np
-from pydantic import BaseModel
-
-# from pydantic.dataclasses import dataclass
+from constants import l_R
 from qpsolvers import available_solvers, solve_qp
 from scipy.sparse import csc_array
 from scipy.sparse import eye as speye
@@ -22,6 +20,7 @@ __all__ = [
     "offline_motion_plan",
     "plot_motion_plan",
     "generate_track_data_file",
+    "triple_motion_plan_ref",
 ]
 NUMBER_SPLINE_INTERVALS = 500
 
@@ -38,6 +37,8 @@ def fit_spline(
 
     :param path: Nx2 array of points
     :param curv_weight: weight of the curvature term in the cost function
+    :return_errs:
+    :qp_solver:
     :returns p_X, p_Y: Nx4 arrays of coefficients of the splines in the x and y directions
                        (each row correspond to a_i, b_i, c_i, d_i coefficients of the i-th spline portion)
     """
@@ -231,12 +232,12 @@ def uniformly_sample_spline(
     return X_interp, Y_interp, idx_interp, t_interp, s_interp
 
 
-def get_heading_curvature(
+def get_heading(
     coeffs_X: np.ndarray,
     coeffs_Y: np.ndarray,
     idx_interp: np.ndarray,
     t_interp: np.ndarray,
-):
+) -> np.ndarray:
     """
     analytically computes the heading and the curvature at each point along the path
     specified by idx_interp and t_interp.
@@ -261,12 +262,31 @@ def get_heading_curvature(
         + 3 * coeffs_Y[idx_interp, 3] * np.square(t_interp)
     )
     phi = np.arctan2(y_d, x_d)
+
+    return phi
+
+
+def get_curvature(
+    coeffs_X: np.ndarray,
+    coeffs_Y: np.ndarray,
+    idx_interp: np.ndarray,
+    t_interp: np.ndarray,
+) -> np.ndarray:
     # same here with the division by delta_s[idx_interp] ** 2
+    x_d = (
+        coeffs_X[idx_interp, 1]
+        + 2 * coeffs_X[idx_interp, 2] * t_interp
+        + 3 * coeffs_X[idx_interp, 3] * np.square(t_interp)
+    )
+    y_d = (
+        coeffs_Y[idx_interp, 1]
+        + 2 * coeffs_Y[idx_interp, 2] * t_interp
+        + 3 * coeffs_Y[idx_interp, 3] * np.square(t_interp)
+    )
     x_dd = 2 * coeffs_X[idx_interp, 2] + 6 * coeffs_X[idx_interp, 3] * t_interp
     y_dd = 2 * coeffs_Y[idx_interp, 2] + 6 * coeffs_Y[idx_interp, 3] * t_interp
     kappa = (x_d * y_dd - y_d * x_dd) / np.power(x_d**2 + y_d**2, 1.5)
-
-    return phi, kappa
+    return kappa
 
 
 @dataclass
@@ -289,16 +309,16 @@ def plot_motion_plan(
     plt.legend()
     plt.xlabel("track progress [m]")
     plt.ylabel("heading [rad]")
-    plt.tight_layout()
     plt.title(plot_title + " : reference heading/yaw profile")
+    plt.tight_layout()
 
     plt.figure()
     plt.plot(motion_plan.s_ref, motion_plan.kappa_ref, label="curvatures")
     plt.xlabel("track progress [m]")
     plt.ylabel("curvature [1/m]")
     plt.legend()
-    plt.tight_layout()
     plt.title(plot_title + " : reference curvature profile")
+    plt.tight_layout()
 
     plt.figure()
     plot_cones(
@@ -318,8 +338,8 @@ def plot_motion_plan(
         label="center line",
     )
     plt.legend()
-    plt.tight_layout()
     plt.title(plot_title + " : reference trajectory")
+    plt.tight_layout()
 
 
 def offline_motion_plan(
@@ -350,12 +370,18 @@ def offline_motion_plan(
         delta_s=delta_s,
         n_samples=n_samples,
     )
-    phi_ref, kappa_ref = get_heading_curvature(
+    kappa_ref = get_curvature(
         coeffs_X=coeffs_X,
         coeffs_Y=coeffs_Y,
         idx_interp=idx_interp,
         t_interp=t_interp,
     )
+    phi_ref = get_heading(
+        coeffs_X=coeffs_X,
+        coeffs_Y=coeffs_Y,
+        idx_interp=idx_interp,
+        t_interp=t_interp,
+    ) - np.arcsin(l_R * kappa_ref)
     right_widths = np.tile(np.min(track.track_widths[:, 0]), n_samples)
     left_widths = np.tile(np.min(track.track_widths[:, 1]), n_samples)
 
@@ -434,7 +460,6 @@ def main() -> None:
     track_name = "fsds_competition_1"
     track = Track(track_name)
     motion_plan = offline_motion_plan(track)
-    motion_plan = triple_motion_plan_ref(motion_plan)
     plot_motion_plan(motion_plan, track, plot_title=track_name)
     plt.show()
 

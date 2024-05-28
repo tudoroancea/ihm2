@@ -40,7 +40,7 @@ np.set_printoptions(precision=3, suppress=True, linewidth=200)
 FloatArray = npt.NDArray[np.float64]
 
 
-def teds_projection(x: FloatArray, a: FloatArray) -> FloatArray:
+def teds_projection(x: FloatArray, a: float) -> FloatArray:
     """Projection of x onto the interval [a, a + 2*pi)"""
     return np.mod(x - a, 2 * np.pi) + a
 
@@ -440,10 +440,7 @@ class NMPCControllerIpopt(Controller):
                 "print_time": 0,
                 "jit": True,
                 "jit_options": {"flags": ["-O3 -march=native"], "verbose": False},
-                "ipopt": {
-                    "sb": "yes",
-                    "print_level": 0,
-                },
+                "ipopt": {"sb": "yes", "print_level": 0},
             },
         )
         ic(self.solver)
@@ -1232,22 +1229,6 @@ def visualize(
             axes[subplot_name] = plt.subplot2grid(
                 gridshape, subplot_info["loc"], rowspan=2
             )
-            # plot data that will be update using the slider and store the lines
-            lines[subplot_name] = {
-                "past": axes[subplot_name].plot(
-                    subplot_info["data"]["past"][:, 0],
-                    subplot_info["data"]["past"][:, 1],
-                    c=purple,
-                )[0],
-                # at first we don't display references or predictions (only once we
-                # activate the slider), so we just provide nan array with appropriate shape
-                "ref": axes[subplot_name].plot(
-                    np.full((Nf + 1,), np.nan), np.full((Nf + 1,), np.nan), c=orange
-                )[0],
-                "pred": axes[subplot_name].plot(
-                    np.full((Nf + 1,), np.nan), np.full((Nf + 1,), np.nan), c=green
-                )[0],
-            }
             # plot additional data that will not be updated
             axes[subplot_name].scatter(blue_cones[:, 0], blue_cones[:, 1], s=14, c=blue)
             axes[subplot_name].scatter(
@@ -1257,6 +1238,22 @@ def visualize(
                 big_orange_cones[:, 0], big_orange_cones[:, 1], s=28, c=orange
             )
             axes[subplot_name].plot(center_line[:, 0], center_line[:, 1], c="k")
+            # plot data that will be update using the slider and store the lines
+            lines[subplot_name] = {
+                "past": axes[subplot_name].plot(
+                    subplot_info["data"]["past"][:, 0],
+                    subplot_info["data"]["past"][:, 1],
+                    c=green,
+                )[0],
+                # at first we don't display references or predictions (only once we
+                # activate the slider), so we just provide nan array with appropriate shape
+                "ref": axes[subplot_name].plot(
+                    np.full((Nf + 1,), np.nan), np.full((Nf + 1,), np.nan), c="cyan"
+                )[0],
+                "pred": axes[subplot_name].plot(
+                    np.full((Nf + 1,), np.nan), np.full((Nf + 1,), np.nan), c=red
+                )[0],
+            }
             # set aspect ratio to be equal (because we display a map)
             axes[subplot_name].set_aspect("equal")
         else:
@@ -1265,15 +1262,29 @@ def visualize(
                 gridshape, subplot_info["loc"], rowspan=1
             )
             # plot data that will be update using the slider and store the lines
-            lines[subplot_name] = {
-                "past": axes[subplot_name].plot(
-                    dt * np.arange(subplot_info["data"]["past"].shape[0]),
-                    subplot_info["data"]["past"],
-                    c=purple,
-                )[0],
-                "ref": axes[subplot_name].plot(np.full((Nf,), np.nan), c=orange)[0],
-                "pred": axes[subplot_name].plot(np.full((Nf,), np.nan), c=green)[0],
-            }
+            lines[subplot_name] = (
+                {
+                    "past": axes[subplot_name].plot(
+                        dt * np.arange(subplot_info["data"]["past"].shape[0]),
+                        subplot_info["data"]["past"],
+                        c=green,
+                    )[0],
+                    "ref": axes[subplot_name].plot(np.full((Nf,), np.nan), c="cyan")[0],
+                    "pred": axes[subplot_name].plot(np.full((Nf,), np.nan), c=red)[0],
+                }
+                if subplot_name not in {"T", "delta"}
+                else {
+                    "past": axes[subplot_name].step(
+                        dt * np.arange(subplot_info["data"]["past"].shape[0]),
+                        subplot_info["data"]["past"],
+                        c=green,
+                        where="post",
+                    )[0],
+                    "pred": axes[subplot_name].step(
+                        np.arange(Nf), np.full((Nf,), np.nan), c=red, where="post"
+                    )[0],
+                }
+            )
 
         # if we defined some, add labels to the axes
         if "xlabel" in subplot_info:
@@ -1373,10 +1384,10 @@ if __name__ == "__main__":
     # ocp_opts.print_level = 0
     closed_loop(
         controller=NMPCControllerIpopt(
-            q_lon=100.0,
-            q_lat=100.0,
+            q_lon=10.0,
+            q_lat=20.0,
             q_phi=50.0,
-            q_v=100.0,
+            q_v=20.0,
             r_T=0.01,
             r_delta=2.0,
             q_lon_f=1000.0,

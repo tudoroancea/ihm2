@@ -324,6 +324,10 @@ class NMPCControllerIpopt(Controller):
     q_v: float
     r_T: float
     r_delta: float
+    q_lon_f: float
+    q_lat_f: float
+    q_phi_f: float
+    q_v_f: float
 
     def __init__(
         self,
@@ -347,12 +351,12 @@ class NMPCControllerIpopt(Controller):
         self.q_lat = q_lat
         self.q_phi = q_phi
         self.q_v = q_v
+        self.r_T = r_T
+        self.r_delta = r_delta
         self.q_lon_f = q_lon_f
         self.q_lat_f = q_lat_f
         self.q_phi_f = q_phi_f
         self.q_v_f = q_v_f
-        self.r_T = r_T
-        self.r_delta = r_delta
 
         # optimization variables
         X_ref = SX.sym("X_ref", Nf + 1)
@@ -395,10 +399,10 @@ class NMPCControllerIpopt(Controller):
         e_lon = cp * (X - X_ref[Nf]) + sp * (Y - Y_ref[Nf])
         e_lat = -sp * (X - X_ref[Nf]) + cp * (Y - Y_ref[Nf])
         cost_function += (
-            self.q_lon * e_lon**2
-            + self.q_lat * e_lat**2
-            + self.q_phi * (phi - phi_ref[Nf]) ** 2
-            + self.q_v * (v - v_ref[Nf]) ** 2
+            self.q_lon_f * e_lon**2
+            + self.q_lat_f * e_lat**2
+            + self.q_phi_f * (phi - phi_ref[Nf]) ** 2
+            + self.q_v_f * (v - v_ref[Nf]) ** 2
         )
 
         # equality constraints
@@ -439,8 +443,6 @@ class NMPCControllerIpopt(Controller):
                 "ipopt": {
                     "sb": "yes",
                     "print_level": 0,
-                    "max_iter": 200,
-                    "linear_solver": "ma97",
                 },
             },
         )

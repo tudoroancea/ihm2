@@ -2,3 +2,7 @@ c_generated_code
 acados_ocp.json
 *.png
 *.npz
+*.c
+*.o
+*.dylib
+*.so

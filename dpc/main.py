@@ -5,6 +5,7 @@ import platform
 import itertools 
 
 import torch 
+import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
 
 import matplotlib.axes
@@ -44,6 +45,10 @@ np.set_printoptions(precision=3, suppress=True, linewidth=200)
 FloatArray = npt.NDArray[np.float64]
 
 
+################################################################################
+# utils
+################################################################################
+
 def teds_projection(x: FloatArray, a: float) -> FloatArray:
     """Projection of x onto the interval [a, a + 2*pi)"""
     return np.mod(x - a, 2 * np.pi) + a
@@ -56,6 +61,10 @@ def unwrap_to_pi(x: FloatArray) -> FloatArray:
     diffs[diffs < -1.5 * np.pi] += 2 * np.pi
     return np.insert(x[0] + np.cumsum(diffs), 0, x[0])
 
+
+################################################################################
+# models
+################################################################################
 
 def get_continuous_dynamics() -> Function:
     # state and control variables
@@ -100,6 +109,8 @@ def get_discrete_dynamics() -> Function:
         "discrete_dynamics", [x, u], [x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)]
     )
 
+def continuous_dynamics_pytorch():
+    pass
 
 def get_acados_model() -> AcadosModel:
     model = AcadosModel()
@@ -111,6 +122,10 @@ def get_acados_model() -> AcadosModel:
     model.f_impl_expr = model.xdot - model.f_expl_expr
     return model
 
+
+################################################################################
+# controllers
+################################################################################
 
 class Controller(ABC):
     @abstractmethod
@@ -671,7 +686,24 @@ def split_dataset(df):
 
 
 class DPCController(Controller):
+    net: nn.Module # input: 
+    discrete_dynamics: Function
+
     def __init__(self):
+        self.discrete_dynamics = get_discrete_dynamics()
+
+    @staticmethod
+    def from_scratch() -> DPCController:
+        # input: dataset file, controller tuning, net config (number and dimensions of layers)
+        # load dataset and create dataloaders for train and validation dataset
+        # logger setup
+        # training loop with checkpointing
+        # save weights to file
+        pass
+
+    @staticmethod
+    def from_file()-> DPCController:
+        # directly load from file
         pass
 
     def control(
@@ -685,7 +717,21 @@ class DPCController(Controller):
         phi_ref: FloatArray,
         v_ref: FloatArray,
     ) -> tuple[FloatArray, FloatArray, float]:
-        pass
+        # translate and rotate reference and current poses
+        # assemble inputs into a tensor
+        input = torch.unsqueeze(torch.tensor(np.concatenate((np.array([X,Y,phi,v]),np.column_stack((X_ref, Y_ref,phi_ref,v_ref)))), dtype=torch.float32, requires_grad=False).to(device=self.net.device), 0)
+        # forward pass of the net on the data
+        start = perf_counter()
+        output = self.net(input)
+        stop = perf_counter()
+        # reformat the output
+        u_pred = output.squeeze().detach().cpu().numpy().reshape(Nf, nu)
+        x_pred = [np.array([X, Y, phi, v])]
+        for i in range(Nf):
+            x_pred.append(self.discrete_dynamics(x_pred[-1], u_pred[i]).full().ravel())
+        x_pred = np.array(x_pred)
+
+        return x_pred, u_pred, stop - start
 
 
 NUMBER_SPLINE_INTERVALS = 500

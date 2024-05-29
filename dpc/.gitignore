@@ -6,3 +6,5 @@ acados_ocp.json
 *.o
 *.dylib
 *.so
+*.csv
+*.pth

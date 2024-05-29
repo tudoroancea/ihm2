@@ -28,8 +28,8 @@ def smooth_abs(x: SX | MX) -> SX | MX:
     return smooth_sgn(x) * x
 
 
-def smooth_abs_nonzero(x: SX | MX):
-    return smooth_abs(x) + 1e-3 * exp(-x * x)
+def smooth_abs_nonzero(x: SX | MX, min_val: float = 1e-6) -> SX | MX:
+    return smooth_abs(x) + min_val * exp(-x * x)
 
 
 def teds_projection(x: np.ndarray | float, a: float):

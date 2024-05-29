@@ -296,6 +296,7 @@ void Track::frenet_to_cartesian(const double& s, const double& n, double& X, dou
     X = X_ref + n * normal(0);
     Y = Y_ref + n * normal(1);
 }
+
 void Track::frenet_to_cartesian(const Eigen::VectorXd& s, const Eigen::VectorXd& n, Eigen::VectorXd& X, Eigen::VectorXd& Y) const {
     X.resize(s.size());
     Y.resize(s.size());

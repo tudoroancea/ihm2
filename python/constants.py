@@ -13,8 +13,10 @@ __all__ = [
     "front_axle_track",
     "rear_axle_track",
     "axle_track",
-    "L",
-    "W",
+    "rear_weight_distribution",
+    "front_weight_distribution",
+    "car_length",
+    "car_width",
     "C_m0",
     "C_r0",
     "C_r1",
@@ -39,15 +41,21 @@ __all__ = [
 ]
 
 g = 9.81  # gravity
+
+# car inertia parameters
 m = 230.0  # mass
 I_z = 137.583  # yaw moment of inertia
+
+# geometric parameters
 z_CG = 0.295  # height of center of gravity
 front_axle_track = rear_axle_track = axle_track = 1.24  # wheelbase
 l_R = 0.7853  # distance from CoG to rear axle
 l_F = 0.7853  # distance from CoG to front axle
 wheelbase = 1.5706  # distance between the two axles
-L = 3.19  # length of the car
-W = 1.55  # width of the car
+rear_weight_distribution = l_R / wheelbase
+front_weight_distribution = l_F / wheelbase
+car_length = 3.19  # length of the car
+car_width = 1.55  # width of the car
 
 # drivetrain parameters (simplified)
 C_m0 = 4.950
@@ -85,20 +93,12 @@ Ca = c1a
 Da = d1a * static_weight + d2a
 Ea = e1a * static_weight + e2a
 Ba = BCDa / (Ca * Da)
-from icecream import ic
-
-ic(
-    Bs,
-    Cs,
-    Ds,
-    Es,
-)
 
 # wheel parameters (ony used in dyn10 model)
 R_w = 0.20809  # wheel radius
 I_w = 0.3  # wheel inertia
-k_d = 0.17  #
-k_s = 15.0  #
+k_d = 0.17  # dynamic friction coefficient
+k_s = 15.0  # static friction coefficient
 
 # time constants of actuators
 t_T = 1e-3  # time constant for throttle actuator
@@ -109,3 +109,6 @@ C_downforce = 3.96864
 
 # torque vectoring gains
 K_tv = 300.0
+
+# marginal_constant = t_T * BCDs * (R_w * R_w / I_w + 1 / 0.3)
+marginal_constant = 0.01

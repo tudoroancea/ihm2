@@ -1,12 +1,15 @@
+from copy import copy
 import csv
+from typing import OrderedDict
 from abc import ABC, abstractmethod
 from time import perf_counter
 import platform
-import itertools 
+import itertools
 
-import torch 
+import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
+import torch.nn.functional as F
 
 import matplotlib.axes
 import matplotlib.lines
@@ -49,6 +52,7 @@ FloatArray = npt.NDArray[np.float64]
 # utils
 ################################################################################
 
+
 def teds_projection(x: FloatArray, a: float) -> FloatArray:
     """Projection of x onto the interval [a, a + 2*pi)"""
     return np.mod(x - a, 2 * np.pi) + a
@@ -65,6 +69,7 @@ def unwrap_to_pi(x: FloatArray) -> FloatArray:
 ################################################################################
 # models
 ################################################################################
+
 
 def get_continuous_dynamics() -> Function:
     # state and control variables
@@ -109,8 +114,10 @@ def get_discrete_dynamics() -> Function:
         "discrete_dynamics", [x, u], [x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)]
     )
 
+
 def continuous_dynamics_pytorch():
     pass
+
 
 def get_acados_model() -> AcadosModel:
     model = AcadosModel()
@@ -126,6 +133,7 @@ def get_acados_model() -> AcadosModel:
 ################################################################################
 # controllers
 ################################################################################
+
 
 class Controller(ABC):
     @abstractmethod
@@ -407,8 +415,8 @@ class NMPCControllerIpopt(Controller):
                 )
             T = u[i][0]
             delta = u[i][1]
-            T_ref = (C_r0 + C_r1 * v_ref[i] + C_r2 * v_ref[i]**2) / C_m0
-            cost_function += self.r_T * (T-T_ref)**2 + self.r_delta * delta**2
+            T_ref = (C_r0 + C_r1 * v_ref[i] + C_r2 * v_ref[i] ** 2) / C_m0
+            cost_function += self.r_T * (T - T_ref) ** 2 + self.r_delta * delta**2
 
         cp = cos(phi_ref[Nf])
         sp = sin(phi_ref[Nf])
@@ -459,8 +467,11 @@ class NMPCControllerIpopt(Controller):
             {
                 "print_time": 0,
                 "ipopt": {"sb": "yes", "print_level": 0},
-            } | (
-                {} if platform.system() == "Linux" else {
+            }
+            | (
+                {}
+                if platform.system() == "Linux"
+                else {
                     "jit": True,
                     "jit_options": {"flags": ["-O3 -march=native"], "verbose": False},
                 }
@@ -628,14 +639,15 @@ def frdist(p, q):
     return dist
 
 
-
-def create_dpc_dataset(filename: str, max_curvature = 1/6, n_trajs = 31, n_lon = 11, n_lat = 11, n_phi = 11, n_v=21):
+def create_dpc_dataset(
+    filename: str, max_curvature=1 / 6, n_trajs=31, n_lon=11, n_lat=11, n_phi=11, n_v=21
+):
     # sample arcs of constant curvatures with constant speeds to create references -> 10x10=100
     # then create different initial conditions by perturbing e_lat, e_lon, e_phi, e_v. Vary the bounds on e_phi in function of the curvature -> 10^4 values
     # -> 10^6 samples, each of size nx x (Nf+1) = 4 x 41 = 84 -> ~85MB
     curvatures = np.linspace(-max_curvature, max_curvature, n_trajs)
     v_ref = 5.0
-    s = v_ref * dt * np.arange(Nf+1)
+    s = v_ref * dt * np.arange(Nf + 1)
     reference_trajectories = []
     reference_headings = []
     plt.figure()
@@ -644,9 +656,11 @@ def create_dpc_dataset(filename: str, max_curvature = 1/6, n_trajs = 31, n_lon =
             reference_trajectory = np.column_stack((s, np.zeros_like(s)))
             reference_heading = np.zeros_like(s)
         else:
-            curvature_radius = np.abs(1/curvature)
-            angles = s / curvature_radius - np.pi/2
-            reference_trajectory = curvature_radius * np.column_stack([np.cos(angles), np.sin(angles)])
+            curvature_radius = np.abs(1 / curvature)
+            angles = s / curvature_radius - np.pi / 2
+            reference_trajectory = curvature_radius * np.column_stack(
+                [np.cos(angles), np.sin(angles)]
+            )
             reference_heading = angles
             reference_trajectory[:, 1] += curvature_radius
             reference_trajectory[:, 1] *= np.sign(curvature)
@@ -664,47 +678,124 @@ def create_dpc_dataset(filename: str, max_curvature = 1/6, n_trajs = 31, n_lon =
     vel_errors = np.linspace(-5.0, 5.0, n_v)
 
     df = []
-    for (traj, phi_ref), Y, phi, vel_err in itertools.product(zip(reference_trajectories, reference_headings), lateral_errors, heading_errors, vel_errors):
+    for (traj, phi_ref), Y, phi, vel_err in itertools.product(
+        zip(reference_trajectories, reference_headings),
+        lateral_errors,
+        heading_errors,
+        vel_errors,
+    ):
         X = 0.0
         v = v_ref + vel_err
         X_ref = traj[:, 0]
         Y_ref = traj[:, 1]
         # ic(X,Y,phi,v, v_ref, vel_err)
         df.append(
-            np.concatenate((
-                np.array([X,Y,phi, v]),
-                  np.reshape(np.column_stack((X_ref, Y_ref, phi_ref, v_ref * np.ones_like(s))), nx * (Nf+1))))
+            np.concatenate(
+                (
+                    np.array([X, Y, phi, v]),
+                    np.reshape(
+                        np.column_stack(
+                            (X_ref, Y_ref, phi_ref, v_ref * np.ones_like(s))
+                        ),
+                        nx * (Nf + 1),
+                    ),
+                )
+            )
         )
     df = np.array(df)
-    
-    np.savetxt(filename, df, fmt="%.5f",delimiter=",", header="X,Y,phi,v,"+ ",".join([f"X_ref_{i},Y_ref_{i},phi_ref_{i},v_ref_{i}" for i in range(Nf+1)]))
+
+    np.savetxt(
+        filename,
+        df,
+        fmt="%.5f",
+        delimiter=",",
+        header="X,Y,phi,v,"
+        + ",".join(
+            [f"X_ref_{i},Y_ref_{i},phi_ref_{i},v_ref_{i}" for i in range(Nf + 1)]
+        ),
+    )
 
     return df
+
 
 def split_dataset(df):
     pass
 
 
+class ControlConstraintScale(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.scale = torch.tensor([[[T_max, delta_max]]], requires_grad=False)
+
+    def forward(self, intput: torch.Tensor) -> torch.Tensor:
+        return self.scale * F.tanh(input)
+
+
+def construct_mlp(
+    nin: int,
+    nout: int,
+    nhidden: list[int] = [128, 128, 128],
+    nonlinearity: str = "relu",
+):
+    assert len(nhidden) >= 1
+    nonlinearity_function = {
+        "relu": nn.ReLU(),
+        "leaky_relu": nn.LeakyReLU(),
+        "tanh": nn.Tanh(),
+        "sigmoid": nn.Sigmoid(),
+    }[nonlinearity]
+
+    di = {
+        # "batchnorm": nn.BatchNorm1d(nin),
+        "hidden_layer_0": nn.Linear(nin, nhidden[0], bias=True),
+        "nonlinearity_0": nonlinearity_function,
+    }
+    nn.init.xavier_uniform_(
+        di["hidden_layer_0"].weight, gain=nn.init.calculate_gain(nonlinearity)
+    )
+    for i in range(1, len(nhidden)):
+        di.update(
+            {
+                f"hidden_layer_{i}": nn.Linear(nhidden[i - 1], nhidden[i], bias=True),
+                f"nonlinearity_{i}": nonlinearity_function,
+            }
+        )
+        nn.init.xavier_uniform_(
+            di[f"hidden_layer_{i}"].weight,
+            gain=nn.init.calculate_gain(nonlinearity),
+        )
+    di.update(
+        {
+            "output_layer": nn.Linear(nhidden[-1], nout, bias=True),
+            "ouput_nonlinearity": ControlConstraintScale(),
+        }
+    )
+    nn.init.xavier_uniform_(
+        di["output_layer"].weight, gain=nn.init.calculate_gain(nonlinearity)
+    )
+
+    return nn.Sequential(OrderedDict(di))
+
+
 class DPCController(Controller):
-    net: nn.Module # input: 
+    net: nn.Module  # input:
     discrete_dynamics: Function
 
-    def __init__(self):
+    def __init__(self, nhidden: list[int], nonlinearity: str, weights_file: str):
         self.discrete_dynamics = get_discrete_dynamics()
+        self.net = construct_mlp(
+            nin=(Nf + 1) * nx, nout=Nf * nu, nhidden=nhidden, nonlinearity=nonlinearity
+        )
+        # load weights
 
-    @staticmethod
-    def from_scratch() -> DPCController:
+    @classmethod
+    def from_scratch(cls):
         # input: dataset file, controller tuning, net config (number and dimensions of layers)
         # load dataset and create dataloaders for train and validation dataset
         # logger setup
         # training loop with checkpointing
         # save weights to file
-        pass
-
-    @staticmethod
-    def from_file()-> DPCController:
-        # directly load from file
-        pass
+        return cls()
 
     def control(
         self,
@@ -718,8 +809,37 @@ class DPCController(Controller):
         v_ref: FloatArray,
     ) -> tuple[FloatArray, FloatArray, float]:
         # translate and rotate reference and current poses
+        X_ref_0 = copy(X_ref[0])
+        Y_ref_0 = copy(Y_ref[0])
+        phi_ref_0 = copy(phi_ref[0])
+
+        R = np.array(
+            [
+                [
+                    np.cos(phi_ref_0),
+                    np.sin(phi_ref_0),
+                ]
+            ]
+        )
+        current_state = np.array([X - X_ref[0], Y - Y_ref[0], phi - phi_ref_0, v])
+        current_state[:2] = R @ current_state[:2]
+        current_state[2] -= phi_ref_0
+        ref = np.column_stack((X_ref, Y_ref, phi_ref, v_ref))
+        ref[:, :2] = ref[:, :2] @ R.T
         # assemble inputs into a tensor
-        input = torch.unsqueeze(torch.tensor(np.concatenate((np.array([X,Y,phi,v]),np.column_stack((X_ref, Y_ref,phi_ref,v_ref)))), dtype=torch.float32, requires_grad=False).to(device=self.net.device), 0)
+        input = torch.unsqueeze(
+            torch.tensor(
+                np.concatenate(
+                    (
+                        np.array([X, Y, phi, v]),
+                        np.column_stack((X_ref, Y_ref, phi_ref, v_ref)),
+                    )
+                ),
+                dtype=torch.float32,
+                requires_grad=False,
+            ).to(device=self.net.device),
+            0,
+        )
         # forward pass of the net on the data
         start = perf_counter()
         output = self.net(input)
@@ -751,7 +871,7 @@ def fit_spline(
     :return_errs:
     :qp_solver:
     :returns p_X, p_Y: Nx4 arrays of coefficients of the splines in the x and y directions
-                       (each row correspond to a_i, b_i, c_i, d_i coefficients of the i-th 
+                       (each row correspond to a_i, b_i, c_i, d_i coefficients of the i-th
                        spline portion defined by a_i + b_i * t + ...)
     """
     assert (

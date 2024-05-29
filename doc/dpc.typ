@@ -54,3 +54,21 @@ and then adding the cost $q_"lon" e_("lon",k)^2 + q_"lat" e_("lat",k)^2$ #h(0.1m
 Then only the weight matrix changes, but the cost function remains a linear
 least-squere loss. In particular, the weight matrix is different at each stage
 (because it depends on $phi^"ref"$).
+
+We can also use these newly defined lateral error to enforce (approximate) track constraints as 
+$
+  e_("lat,min,k") <= e_("lat", k) <= e_("lat,max,k")
+$
+so in the end the OCP reads
+$
+  min space    & space sum_(k=0)^(N_f-1) q_"lon" e_("lon", k)^2 + q_"lat" e_("lat", k)^2 + q_phi (phi_k-phi_k^"ref")^2 + q_v (v_k-v_k^"ref")^2 + q_delta delta_k^2 + q_T T_k^2 \
+  "s.t." space & space x_(k+1) = f(x_k, u_k), space k = 0, ..., N_f-1, \
+               & space e_("lat,min,k") <= e_("lat", k) <= e_("lat,max,k"), space k = 0, ..., N_f, \
+               & space -T_max <= T_k <= T_max, space k=0, ..., N_f -1, \
+               & space -delta_max <= delta_k <= delta_max, space k=0, ..., N_f -1 space .\
+$
+
+
+== DPC
+
+inputs: current state and state reference

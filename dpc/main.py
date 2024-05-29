@@ -387,7 +387,8 @@ class NMPCControllerIpopt(Controller):
                 )
             T = u[i][0]
             delta = u[i][1]
-            cost_function += self.r_T * T**2 + self.r_delta * delta**2
+            T_ref = (C_r0 + C_r1 * v_ref[i] + C_r2 * v_ref[i]**2) / C_m0
+            cost_function += self.r_T * (T-T_ref)**2 + self.r_delta * delta**2
 
         cp = cos(phi_ref[Nf])
         sp = sin(phi_ref[Nf])
@@ -608,7 +609,10 @@ def frdist(p, q):
 
 
 def create_dpc_dataset():
-    # sample points uniformly on all paths
+    # sample arcs of constant curvatures with constant speeds to create references -> 10x10=100
+    # then create different initial conditions by perturbing e_lat, e_lon, e_phi, e_v. Vary the bounds on e_phi in function of the curvature -> 10^4 values
+    # -> 10^6 samples, each of size nx x (Nf+1) = 4 x 41 = 84 -> ~85MB
+
     pass
 
 
@@ -1456,7 +1460,7 @@ def visualize(
                 axes[subplot_name].autoscale_view()
 
     # create slider
-    slider_ax = fig.add_axes([0.125, 0.02, 0.775, 0.03])
+    slider_ax = fig.add_axes((0.125, 0.02, 0.775, 0.03))
     slider = matplotlib.widgets.Slider(
         ax=slider_ax,
         label="sim iteration",

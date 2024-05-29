@@ -1,6 +1,11 @@
+import csv
 from abc import ABC, abstractmethod
 from time import perf_counter
 import platform
+import itertools 
+
+import torch 
+from torch.utils.data import DataLoader, Dataset, random_split
 
 import matplotlib.axes
 import matplotlib.lines
@@ -330,16 +335,16 @@ class NMPCControllerIpopt(Controller):
 
     def __init__(
         self,
-        q_lon: float = 1.0,
-        q_lat: float = 1.0,
-        q_phi: float = 1.0,
-        q_v: float = 1.0,
-        r_T: float = 1.0,
-        r_delta: float = 1.0,
-        q_lon_f: float = 1.0,
-        q_lat_f: float = 1.0,
-        q_phi_f: float = 1.0,
-        q_v_f: float = 1.0,
+        q_lon: float = 10.0,
+        q_lat: float = 20.0,
+        q_phi: float = 50.0,
+        q_v: float = 20.0,
+        r_T: float = 1e-3,
+        r_delta: float = 2.0,
+        q_lon_f: float = 1000.0,
+        q_lat_f: float = 1000.0,
+        q_phi_f: float = 500.0,
+        q_v_f: float = 1000.0,
         **kwargs,
     ):
         # create discrete dynamics
@@ -608,15 +613,60 @@ def frdist(p, q):
     return dist
 
 
-def create_dpc_dataset():
+
+def create_dpc_dataset(filename: str, max_curvature = 1/6, n_trajs = 31, n_lon = 11, n_lat = 11, n_phi = 11, n_v=21):
     # sample arcs of constant curvatures with constant speeds to create references -> 10x10=100
     # then create different initial conditions by perturbing e_lat, e_lon, e_phi, e_v. Vary the bounds on e_phi in function of the curvature -> 10^4 values
     # -> 10^6 samples, each of size nx x (Nf+1) = 4 x 41 = 84 -> ~85MB
+    curvatures = np.linspace(-max_curvature, max_curvature, n_trajs)
+    v_ref = 5.0
+    s = v_ref * dt * np.arange(Nf+1)
+    reference_trajectories = []
+    reference_headings = []
+    plt.figure()
+    for curvature in curvatures:
+        if np.abs(curvature) < 1e-3:
+            reference_trajectory = np.column_stack((s, np.zeros_like(s)))
+            reference_heading = np.zeros_like(s)
+        else:
+            curvature_radius = np.abs(1/curvature)
+            angles = s / curvature_radius - np.pi/2
+            reference_trajectory = curvature_radius * np.column_stack([np.cos(angles), np.sin(angles)])
+            reference_heading = angles
+            reference_trajectory[:, 1] += curvature_radius
+            reference_trajectory[:, 1] *= np.sign(curvature)
 
-    pass
+        plt.plot(reference_trajectory[:, 0], reference_trajectory[:, 1])
+        reference_trajectories.append(reference_trajectory)
+        reference_headings.append(reference_heading)
 
+    plt.axis("equal")
+    plt.show()
 
-def split_dataset():
+    # now associated perturbed initial state
+    lateral_errors = np.linspace(-0.5, 0.5, n_lat)
+    heading_errors = np.linspace(-0.5, 0.5, n_phi)
+    vel_errors = np.linspace(-5.0, 5.0, n_v)
+
+    df = []
+    for (traj, phi_ref), Y, phi, vel_err in itertools.product(zip(reference_trajectories, reference_headings), lateral_errors, heading_errors, vel_errors):
+        X = 0.0
+        v = v_ref + vel_err
+        X_ref = traj[:, 0]
+        Y_ref = traj[:, 1]
+        # ic(X,Y,phi,v, v_ref, vel_err)
+        df.append(
+            np.concatenate((
+                np.array([X,Y,phi, v]),
+                  np.reshape(np.column_stack((X_ref, Y_ref, phi_ref, v_ref * np.ones_like(s))), nx * (Nf+1))))
+        )
+    df = np.array(df)
+    
+    np.savetxt(filename, df, fmt="%.5f",delimiter=",", header="X,Y,phi,v,"+ ",".join([f"X_ref_{i},Y_ref_{i},phi_ref_{i},v_ref_{i}" for i in range(Nf+1)]))
+
+    return df
+
+def split_dataset(df):
     pass
 
 
@@ -644,7 +694,6 @@ NUMBER_SPLINE_INTERVALS = 500
 def fit_spline(
     path: FloatArray,
     curv_weight: float = 1.0,
-    return_errs: bool = False,
     qp_solver: str = "proxqp",
 ) -> tuple[FloatArray, FloatArray]:
     """
@@ -656,7 +705,8 @@ def fit_spline(
     :return_errs:
     :qp_solver:
     :returns p_X, p_Y: Nx4 arrays of coefficients of the splines in the x and y directions
-                       (each row correspond to a_i, b_i, c_i, d_i coefficients of the i-th spline portion)
+                       (each row correspond to a_i, b_i, c_i, d_i coefficients of the i-th 
+                       spline portion defined by a_i + b_i * t + ...)
     """
     assert (
         len(path.shape) == 2 and path.shape[1] == 2
@@ -725,19 +775,18 @@ def fit_spline(
     # solve the QP for X and Y separately
     p_X = solve_qp(P=P, q=q[:, 0], A=A, b=b, solver=qp_solver)
     p_Y = solve_qp(P=P, q=q[:, 1], A=A, b=b, solver=qp_solver)
+    if p_X is None or p_Y is None:
+        raise ValueError("solving qp failed")
 
     # compute interpolation error on X and Y
-    X_err = B @ p_X - path[:, 0]
-    Y_err = B @ p_Y - path[:, 1]
+    # X_err = B @ p_X - path[:, 0]
+    # Y_err = B @ p_Y - path[:, 1]
 
     # reshape to (N,4) arrays
     p_X = np.reshape(p_X, (N, 4))
     p_Y = np.reshape(p_Y, (N, 4))
 
-    if return_errs:
-        return p_X, p_Y, X_err, Y_err
-    else:
-        return p_X, p_Y
+    return p_X, p_Y
 
 
 def check_spline_coeffs_dims(coeffs_X: FloatArray, coeffs_Y: FloatArray):
@@ -852,7 +901,7 @@ def uniformly_sample_spline(
 def get_heading(
     coeffs_X: FloatArray,
     coeffs_Y: FloatArray,
-    idx_interp: FloatArray,
+    idx_interp: npt.NDArray[np.int64],
     t_interp: FloatArray,
 ) -> FloatArray:
     """
@@ -886,7 +935,7 @@ def get_heading(
 def get_curvature(
     coeffs_X: FloatArray,
     coeffs_Y: FloatArray,
-    idx_interp: FloatArray,
+    idx_interp: npt.NDArray[np.int64],
     t_interp: FloatArray,
 ) -> FloatArray:
     # same here with the division by delta_s[idx_interp] ** 2
@@ -932,12 +981,9 @@ class MotionPlanner:
         #     idx_interp=idx_interp,
         #     t_interp=t_interp,
         # )
-        phi_ref = get_heading(
-            coeffs_X=coeffs_X,
-            coeffs_Y=coeffs_Y,
-            idx_interp=idx_interp,
-            t_interp=t_interp,
-        )
+        phi_ref = get_heading(coeffs_X, coeffs_Y, idx_interp, t_interp)
+        kappa_ref = get_curvature(coeffs_X, coeffs_Y, idx_interp, t_interp)
+        ic(kappa_ref.min(), kappa_ref.max())
         # v_ref = np.minimum(v_max, np.sqrt(a_lat_max / np.abs(kappa_ref)))
 
         lap_length = s_ref[-1] + np.hypot(X_ref[-1] - X_ref[0], Y_ref[-1] - Y_ref[0])
@@ -1193,7 +1239,7 @@ def closed_loop(controller: Controller, data_file: str = "closed_loop_data.npz")
         x_current = discrete_dynamics(x_current, u_current).full().ravel()
         # check if we have completed a lap
         if s_guess > motion_planner.lap_length:
-            print(f"Completed a lap in {i} iterations")
+            print(f"Completed a lap in {i} iterations, i.e. {i * dt} s")
             break
 
     all_runtimes = np.array(all_runtimes)
@@ -1495,19 +1541,22 @@ if __name__ == "__main__":
     # ocp_opts.sim_method_num_steps = 1
     # ocp_opts.globalization = "MERIT_BACKTRACKING"
     # ocp_opts.print_level = 0
-    closed_loop(
-        controller=NMPCControllerIpopt(
-            q_lon=10.0,
-            q_lat=20.0,
-            q_phi=50.0,
-            q_v=20.0,
-            r_T=1e-3,
-            r_delta=2.0,
-            q_lon_f=1000.0,
-            q_lat_f=1000.0,
-            q_phi_f=500.0,
-            q_v_f=1000.0,
-        ),
-        data_file="closed_loop_data.npz",
-    )
-    visualize_file("closed_loop_data.npz")
+
+    # closed_loop(
+    #     controller=NMPCControllerIpopt(
+    #         q_lon=10.0,
+    #         q_lat=20.0,
+    #         q_phi=50.0,
+    #         q_v=20.0,
+    #         r_T=1e-3,
+    #         r_delta=2.0,
+    #         q_lon_f=1000.0,
+    #         q_lat_f=1000.0,
+    #         q_phi_f=500.0,
+    #         q_v_f=1000.0,
+    #     ),
+    #     data_file="closed_loop_data.npz",
+    # )
+    # visualize_file("closed_loop_data.npz")
+
+    create_dpc_dataset("bruh.csv")

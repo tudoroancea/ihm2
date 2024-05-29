@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
-from re import S
 from time import perf_counter
+import platform
 
-import control
 import matplotlib.axes
 import matplotlib.lines
 import matplotlib.pyplot as plt
@@ -10,7 +9,7 @@ import matplotlib.widgets
 import numpy as np
 import numpy.typing as npt
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpOptions, AcadosOcpSolver
-from casadi import SX, Function, cos, nlpsol, reshape, sin, tanh, vertcat
+from casadi import SX, Function, cos, nlpsol, sin, tanh, vertcat
 from icecream import ic
 from qpsolvers import available_solvers, solve_qp
 from scipy.linalg import block_diag
@@ -438,10 +437,13 @@ class NMPCControllerIpopt(Controller):
             },
             {
                 "print_time": 0,
-                "jit": True,
-                "jit_options": {"flags": ["-O3 -march=native"], "verbose": False},
                 "ipopt": {"sb": "yes", "print_level": 0},
-            },
+            } | (
+                {} if platform.system() == "Linux" else {
+                    "jit": True,
+                    "jit_options": {"flags": ["-O3 -march=native"], "verbose": False},
+                }
+            ),
         )
         ic(self.solver)
 

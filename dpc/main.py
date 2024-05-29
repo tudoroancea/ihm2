@@ -1132,7 +1132,7 @@ def closed_loop(controller: Controller, data_file: str = "closed_loop_data.npz")
     2. train a new neural control policy using either DPC or imitation learning
     """
 
-    Tsim = 60.0
+    Tsim = 70.0
     Nsim = int(Tsim / dt) + 1
     v_ref = 5.0
     x_current = np.array([0.0, 0.0, np.pi / 2, 0.0])
@@ -1151,14 +1151,14 @@ def closed_loop(controller: Controller, data_file: str = "closed_loop_data.npz")
 
     # create motion planner
     motion_planner = MotionPlanner(center_line, v_ref=v_ref)
-    motion_planner.plot_motion_plan(
-        center_line,
-        blue_cones,
-        yellow_cones,
-        big_orange_cones,
-        small_orange_cones,
-        "Motion Planner",
-    )
+    # motion_planner.plot_motion_plan(
+    #     center_line,
+    #     blue_cones,
+    #     yellow_cones,
+    #     big_orange_cones,
+    #     small_orange_cones,
+    #     "Motion Planner",
+    # )
 
     for i in trange(Nsim):
         X = x_current[0]
@@ -1497,7 +1497,7 @@ if __name__ == "__main__":
             q_lat=20.0,
             q_phi=50.0,
             q_v=20.0,
-            r_T=0.01,
+            r_T=1e-3,
             r_delta=2.0,
             q_lon_f=1000.0,
             q_lat_f=1000.0,

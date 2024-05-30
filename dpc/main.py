@@ -1,15 +1,10 @@
-from copy import copy
 import csv
-from typing import OrderedDict
-from abc import ABC, abstractmethod
-from time import perf_counter
-import platform
 import itertools
-
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset, random_split
-import torch.nn.functional as F
+import platform
+from abc import ABC, abstractmethod
+from copy import copy
+from time import perf_counter
+from typing import OrderedDict
 
 import matplotlib.axes
 import matplotlib.lines
@@ -17,6 +12,9 @@ import matplotlib.pyplot as plt
 import matplotlib.widgets
 import numpy as np
 import numpy.typing as npt
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpOptions, AcadosOcpSolver
 from casadi import SX, Function, cos, nlpsol, sin, tanh, vertcat
 from icecream import ic
@@ -25,6 +23,7 @@ from scipy.linalg import block_diag
 from scipy.sparse import csc_array
 from scipy.sparse import eye as speye
 from scipy.sparse import kron as spkron
+from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import trange
 
 # car mass and geometry
@@ -541,106 +540,8 @@ class NMPCControllerIpopt(Controller):
         return last_prediction_x, last_prediction_u, runtime
 
 
-def _c(ca, i, j, p, q):
-    if ca[i, j] > -1:
-        return ca[i, j]
-    elif i == 0 and j == 0:
-        ca[i, j] = np.linalg.norm(p[i] - q[j])
-    elif i > 0 and j == 0:
-        ca[i, j] = max(_c(ca, i - 1, 0, p, q), np.linalg.norm(p[i] - q[j]))
-    elif i == 0 and j > 0:
-        ca[i, j] = max(_c(ca, 0, j - 1, p, q), np.linalg.norm(p[i] - q[j]))
-    elif i > 0 and j > 0:
-        ca[i, j] = max(
-            min(
-                _c(ca, i - 1, j, p, q),
-                _c(ca, i - 1, j - 1, p, q),
-                _c(ca, i, j - 1, p, q),
-            ),
-            np.linalg.norm(p[i] - q[j]),
-        )
-    else:
-        ca[i, j] = float("inf")
-
-    return ca[i, j]
-
-
-def frdist(p, q):
-    """
-    Computes the discrete Fréchet distance between
-    two curves. The Fréchet distance between two curves in a
-    metric space is a measure of the similarity between the curves.
-    The discrete Fréchet distance may be used for approximately computing
-    the Fréchet distance between two arbitrary curves,
-    as an alternative to using the exact Fréchet distance between a polygonal
-    approximation of the curves or an approximation of this value.
-
-    This is a Python 3.* implementation of the algorithm produced
-    in Eiter, T. and Mannila, H., 1994. Computing discrete Fréchet distance.
-    Tech. Report CD-TR 94/64, Information Systems Department, Technical
-    University of Vienna.
-    http://www.kr.tuwien.ac.at/staff/eiter/et-archive/cdtr9464.pdf
-
-    Function dF(P, Q): real;
-        input: polygonal curves P = (u1, . . . , up) and Q = (v1, . . . , vq).
-        return: δdF (P, Q)
-        ca : array [1..p, 1..q] of real;
-        function c(i, j): real;
-            begin
-                if ca(i, j) > −1 then return ca(i, j)
-                elsif i = 1 and j = 1 then ca(i, j) := d(u1, v1)
-                elsif i > 1 and j = 1 then ca(i, j) := max{ c(i − 1, 1), d(ui, v1) }
-                elsif i = 1 and j > 1 then ca(i, j) := max{ c(1, j − 1), d(u1, vj) }
-                elsif i > 1 and j > 1 then ca(i, j) :=
-                max{ min(c(i − 1, j), c(i − 1, j − 1), c(i, j − 1)), d(ui, vj ) }
-                else ca(i, j) = ∞
-                return ca(i, j);
-            end; /* function c */
-
-        begin
-            for i = 1 to p do for j = 1 to q do ca(i, j) := −1.0;
-            return c(p, q);
-        end.
-
-    Parameters
-    ----------
-    P : Input curve - two dimensional array of points
-    Q : Input curve - two dimensional array of points
-
-    Returns
-    -------
-    dist: float64
-        The discrete Fréchet distance between curves `P` and `Q`.
-
-    Examples
-    --------
-    >>> from frechetdist import frdist
-    >>> P=[[1,1], [2,1], [2,2]]
-    >>> Q=[[2,2], [0,1], [2,4]]
-    >>> frdist(P,Q)
-    >>> 2.0
-    >>> P=[[1,1], [2,1], [2,2]]
-    >>> Q=[[1,1], [2,1], [2,2]]
-    >>> frdist(P,Q)
-    >>> 0
-    """
-    p = np.array(p, np.float64)
-    q = np.array(q, np.float64)
-
-    len_p = len(p)
-    len_q = len(q)
-
-    if len_p == 0 or len_q == 0:
-        raise ValueError("Input curves are empty.")
-
-    ca = np.ones((len_p, len_q), dtype=np.float64) * -1
-
-    dist = _c(ca, len_p - 1, len_q - 1, p, q)
-    return dist
-
-
 def create_dpc_dataset(
-    filename: str, max_curvature=1 / 6, n_trajs=31, n_lon=11, n_lat=11, n_phi=11, n_v=21
+    filename: str, max_curvature=1 / 6, n_trajs=31, n_lat=11, n_phi=11, n_v=21
 ):
     # sample arcs of constant curvatures with constant speeds to create references -> 10x10=100
     # then create different initial conditions by perturbing e_lat, e_lon, e_phi, e_v. Vary the bounds on e_phi in function of the curvature -> 10^4 values
@@ -853,6 +754,10 @@ class DPCController(Controller):
 
         return x_pred, u_pred, stop - start
 
+
+################################################################################
+# motion planner
+################################################################################
 
 NUMBER_SPLINE_INTERVALS = 500
 
@@ -1129,10 +1034,7 @@ class MotionPlanner:
         v_ref=5.0,
     ):
         coeffs_X, coeffs_Y = fit_spline(
-            path=center_line,
-            curv_weight=2.0,
-            qp_solver="proxqp",
-            return_errs=False,
+            path=center_line, curv_weight=2.0, qp_solver="proxqp"
         )
         delta_s = compute_spline_interval_lengths(coeffs_X=coeffs_X, coeffs_Y=coeffs_Y)
         X_ref, Y_ref, idx_interp, t_interp, s_ref = uniformly_sample_spline(
@@ -1267,6 +1169,11 @@ class MotionPlanner:
         plt.tight_layout()
 
 
+################################################################################
+# track data
+################################################################################
+
+
 def load_center_line(filename: str) -> tuple[FloatArray, FloatArray]:
     """
     Loads the center line stored in CSV file specified by filename. This file must have
@@ -1335,6 +1242,11 @@ def plot_cones(
     plt.tight_layout()
     if show:
         plt.show()
+
+
+################################################################################
+# closed loop simulation
+################################################################################
 
 
 def closed_loop(controller: Controller, data_file: str = "closed_loop_data.npz"):
@@ -1425,6 +1337,11 @@ def closed_loop(controller: Controller, data_file: str = "closed_loop_data.npz")
         yellow_cones=yellow_cones,
         big_orange_cones=big_orange_cones,
     )
+
+
+################################################################################
+# visualization
+################################################################################
 
 
 def visualize(
@@ -1708,21 +1625,21 @@ if __name__ == "__main__":
     # ocp_opts.globalization = "MERIT_BACKTRACKING"
     # ocp_opts.print_level = 0
 
-    # closed_loop(
-    #     controller=NMPCControllerIpopt(
-    #         q_lon=10.0,
-    #         q_lat=20.0,
-    #         q_phi=50.0,
-    #         q_v=20.0,
-    #         r_T=1e-3,
-    #         r_delta=2.0,
-    #         q_lon_f=1000.0,
-    #         q_lat_f=1000.0,
-    #         q_phi_f=500.0,
-    #         q_v_f=1000.0,
-    #     ),
-    #     data_file="closed_loop_data.npz",
-    # )
-    # visualize_file("closed_loop_data.npz")
+    closed_loop(
+        controller=NMPCControllerIpopt(
+            q_lon=10.0,
+            q_lat=20.0,
+            q_phi=50.0,
+            q_v=20.0,
+            r_T=1e-3,
+            r_delta=2.0,
+            q_lon_f=1000.0,
+            q_lat_f=1000.0,
+            q_phi_f=500.0,
+            q_v_f=1000.0,
+        ),
+        data_file="closed_loop_data.npz",
+    )
+    visualize_file("closed_loop_data.npz")
 
-    create_dpc_dataset("bruh.csv")
+    # create_dpc_dataset("bruh.csv")

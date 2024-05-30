@@ -184,7 +184,7 @@ class Controller(ABC):
         pass
 
 
-class NMPCController(Controller):
+class NMPCControllerAcados(Controller):
     ocp: AcadosOcp
     solver: AcadosOcpSolver
     discrete_dynamics: Function
@@ -196,17 +196,20 @@ class NMPCController(Controller):
 
     def __init__(
         self,
-        q_lon: float = 1.0,
-        q_lat: float = 1.0,
-        q_phi: float = 1.0,
-        q_v: float = 1.0,
-        r_T: float = 1.0,
-        r_delta: float = 1.0,
-        track_width: float = 1.5,
+        q_lon: float = 10.0,
+        q_lat: float = 20.0,
+        q_phi: float = 50.0,
+        q_v: float = 20.0,
+        r_T: float = 1e-3,
+        r_delta: float = 2.0,
+        q_lon_f: float = 1000.0,
+        q_lat_f: float = 1000.0,
+        q_phi_f: float = 500.0,
+        q_v_f: float = 1000.0,
         ocp_opts: AcadosOcpOptions = AcadosOcpOptions(),
     ):
         self.Q = np.diag([q_lon, q_lat, q_phi, q_v])
-        self.Qf = 100 * self.Q
+        self.Qf = np.diag([q_lon_f, q_lat_f, q_phi_f, q_v_f])
         self.R = np.diag([r_T, r_delta])
 
         ocp = AcadosOcp()
@@ -220,10 +223,10 @@ class NMPCController(Controller):
         ocp.dims.ny = nx + nu
         ocp.dims.ny_e = nx
         ocp.dims.nbu = nu
-        ocp.dims.ng = 1
-        ocp.dims.ng_e = 1
-        ocp.dims.nsg = 1
-        ocp.dims.nsg_e = 1
+        # ocp.dims.ng = 1
+        # ocp.dims.ng_e = 1
+        # ocp.dims.nsg = 1
+        # ocp.dims.nsg_e = 1
         ocp.solver_options.tf = Nf * dt
 
         ocp.cost.cost_type = "LINEAR_LS"
@@ -241,24 +244,24 @@ class NMPCController(Controller):
         ocp.constraints.idxbu = np.array([0, 1])
         ocp.constraints.lbu = np.array([-T_max, -delta_max])
         ocp.constraints.ubu = np.array([T_max, delta_max])
-        ocp.constraints.C = np.zeros((1, nx))  # will be overwritten later
-        ocp.constraints.D = np.zeros((1, nu))
-        ocp.constraints.C_e = np.zeros((1, nx))  # will be overwritten later
-        ocp.constraints.ug = np.array([track_width])
-        ocp.constraints.lg = np.array([track_width])
-        ocp.constraints.ug_e = np.array([track_width])
-        ocp.constraints.lg_e = np.array([track_width])
-        ocp.constraints.idxsg = np.array([0])
-        ocp.constraints.idxsg_e = np.array([0])
+        # ocp.constraints.C = np.zeros((1, nx))  # will be overwritten later
+        # ocp.constraints.D = np.zeros((1, nu))
+        # ocp.constraints.C_e = np.zeros((1, nx))  # will be overwritten later
+        # ocp.constraints.ug = np.array([track_width])
+        # ocp.constraints.lg = np.array([track_width])
+        # ocp.constraints.ug_e = np.array([track_width])
+        # ocp.constraints.lg_e = np.array([track_width])
+        # ocp.constraints.idxsg = np.array([0])
+        # ocp.constraints.idxsg_e = np.array([0])
 
-        ocp.cost.Zl_e = np.ones(1)
-        ocp.cost.Zu_e = np.ones(1)
-        ocp.cost.zl_e = np.ones(1)
-        ocp.cost.zu_e = np.ones(1)
-        ocp.cost.Zl = np.ones(1)
-        ocp.cost.Zu = np.ones(1)
-        ocp.cost.zl = np.ones(1)
-        ocp.cost.zu = np.ones(1)
+        # ocp.cost.Zl_e = np.ones(1)
+        # ocp.cost.Zu_e = np.ones(1)
+        # ocp.cost.zl_e = np.ones(1)
+        # ocp.cost.zu_e = np.ones(1)
+        # ocp.cost.Zl = np.ones(1)
+        # ocp.cost.Zu = np.ones(1)
+        # ocp.cost.zl = np.ones(1)
+        # ocp.cost.zu = np.ones(1)
 
         self.ocp = ocp
         self.solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json", verbose=False)
@@ -288,10 +291,6 @@ class NMPCController(Controller):
 
         # shift last prediction
         self.solver.set(0, "x", x0)
-        # for j in range(Nf - 1):
-        #     self.solver.set(j + 1, "x", self.last_prediction_x[j + 2, :])
-        #     self.solver.set(j, "u", (self.last_prediction_u[j + 1, :]))
-        # self.solver.set(Nf, "x", self.last_prediction_x[-1, :])
         for j in range(Nf):
             self.solver.set(
                 j, "x", np.array([X_ref[j], Y_ref[j], phi_ref[j], v_ref[j]])
@@ -299,13 +298,6 @@ class NMPCController(Controller):
             self.solver.set(j, "u", self.last_prediction_u[j, :])
         self.solver.set(
             Nf, "x", np.array([X_ref[Nf], Y_ref[Nf], phi_ref[Nf], v_ref[Nf]])
-        )
-
-        # change the phi_ref as well as the last_prediction to be in the same range as
-        # phi (more exactly in the range [phi - pi, phi + pi))
-        offset = phi - np.pi
-        self.last_prediction_x[:, 2] = teds_projection(
-            self.last_prediction_x[:, 2], offset
         )
 
         # compute the rotation matrices for the reference
@@ -316,14 +308,13 @@ class NMPCController(Controller):
         Rot[:, 1, 1] = np.cos(phi_ref)
 
         for i in range(Nf + 1):
-            self.solver.constraints_set(
-                i, "C", np.array([[Rot[i, 1, 0], Rot[i, 1, 1], 0.0, 0.0]])
-            )
+            # self.solver.constraints_set(
+            #     i, "C", np.array([[Rot[i, 1, 0], Rot[i, 1, 1], 0.0, 0.0]])
+            # )
             if i < Nf:
-                self.solver.cost_set(i, "W", block_diag(self.Q, self.R), api="new")
-                # self.solver.cost_set(
-                #     i, "W", block_diag(Rot[i].T @ self.Q @ Rot[i], self.R), api="new"
-                # )
+                self.solver.cost_set(
+                    i, "W", block_diag(Rot[i].T @ self.Q @ Rot[i], self.R), api="new"
+                )
                 self.solver.cost_set(
                     i,
                     "yref",
@@ -331,8 +322,7 @@ class NMPCController(Controller):
                     api="new",
                 )
             else:
-                self.solver.cost_set(i, "W", self.Qf, api="new")
-                # self.solver.cost_set(i, "W", Rot[i] @ self.Qf @ Rot[i].T, api="new")
+                self.solver.cost_set(i, "W", Rot[i] @ self.Qf @ Rot[i].T, api="new")
                 self.solver.cost_set(
                     i,
                     "yref",
@@ -361,13 +351,13 @@ class NMPCController(Controller):
             self.last_prediction_x[i + 1, :] = self.solver.get(i, "x")
             self.last_prediction_u[i, :] = self.solver.get(i, "u")
 
-        e = np.squeeze(
-            Rot[:, :2, :2]
-            @ (self.last_prediction_x[:, :2] - np.array([X_ref, Y_ref]).T)[
-                :, :, np.newaxis
-            ]
-        )
-        ic(e)
+        # e = np.squeeze(
+        #     Rot[:, :2, :2]
+        #     @ (self.last_prediction_x[:, :2] - np.array([X_ref, Y_ref]).T)[
+        #         :, :, np.newaxis
+        #     ]
+        # )
+        # ic(e)
         return (
             np.copy(self.last_prediction_x),
             np.copy(self.last_prediction_u),
@@ -1650,32 +1640,23 @@ def visualize_file(filename: str):
 
 
 if __name__ == "__main__":
-    # ocp_opts = AcadosOcpOptions()
-    # ocp_opts.tf = Nf * dt
-    # ocp_opts.qp_solver = "PARTIAL_CONDENSING_HPIPM"
-    # ocp_opts.nlp_solver_type = "SQP"
-    # ocp_opts.nlp_solver_max_iter = 1
-    # ocp_opts.hessian_approx = "EXACT"
-    # ocp_opts.hpipm_mode = "ROBUST"
-    # ocp_opts.integrator_type = "ERK"
-    # ocp_opts.sim_method_num_stages = 4
-    # ocp_opts.sim_method_num_steps = 1
-    # ocp_opts.globalization = "MERIT_BACKTRACKING"
-    # ocp_opts.print_level = 0
+    ocp_opts = AcadosOcpOptions()
+    ocp_opts.tf = Nf * dt
+    ocp_opts.qp_solver = "PARTIAL_CONDENSING_HPIPM"
+    ocp_opts.qp_solver_iter_max = 200
+    ocp_opts.nlp_solver_type = "SQP"
+    ocp_opts.nlp_solver_max_iter = 1
+    ocp_opts.hessian_approx = "EXACT"
+    ocp_opts.hpipm_mode = "ROBUST"
+    ocp_opts.integrator_type = "ERK"
+    ocp_opts.sim_method_num_stages = 4
+    ocp_opts.sim_method_num_steps = 1
+    ocp_opts.globalization = "MERIT_BACKTRACKING"
+    ocp_opts.print_level = 0
 
     closed_loop(
-        controller=NMPCControllerIpopt(
-            q_lon=10.0,
-            q_lat=20.0,
-            q_phi=50.0,
-            q_v=20.0,
-            r_T=1e-3,
-            r_delta=2.0,
-            q_lon_f=1000.0,
-            q_lat_f=1000.0,
-            q_phi_f=500.0,
-            q_v_f=1000.0,
-        ),
+        # controller=NMPCControllerAcados(ocp_opts=ocp_opts),
+        controller=NMPCControllerIpopt(),
         track_name="fsds_competition_1",
         data_file="closed_loop_data.npz",
     )

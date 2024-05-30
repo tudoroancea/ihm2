@@ -1,0 +1,9 @@
+numpy 
+matplotlib
+scipy
+qpsolvers
+casadi
+icecream
+tqdm
+torch
+lightning

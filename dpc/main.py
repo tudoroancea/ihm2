@@ -114,8 +114,42 @@ def get_discrete_dynamics() -> Function:
     )
 
 
-def continuous_dynamics_pytorch():
-    pass
+def continuous_dynamics_pytorch(x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+    """
+    :param x: shape (nbatch, nx)
+    :param u: shape (nbatch, nu)
+    :return xdot: shape (nbatch, nx)
+    """
+    phi = x[:, 2]
+    v = x[:, 3]
+    T = u[:, 0]
+    delta = u[:, 1]
+    beta = 0.5 * delta
+    v_x = v * torch.cos(beta)
+    l_R = 0.5 * wheelbase
+
+    return torch.stack(
+        (
+            v * cos(phi + beta),
+            v * sin(phi + beta),
+            v * sin(beta) / l_R,
+            (C_m0 * T - (C_r0 + C_r1 * v_x + C_r2 * v_x**2) * tanh(10 * v_x)) / m,
+        ),
+        dim=1,
+    )
+
+
+def discrete_dynamics_pytorch(x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+    """
+    :param x: shape (nbatch, nx)
+    :param u: shape (nbatch, nu)
+    :return xnext: shape (nbatch, nx)
+    """
+    k1 = continuous_dynamics_pytorch(x, u)
+    k2 = continuous_dynamics_pytorch(x + dt * 0.5 * k1, u)
+    k3 = continuous_dynamics_pytorch(x + dt * 0.5 * k2, u)
+    k4 = continuous_dynamics_pytorch(x + dt * k3, u)
+    return x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
 def get_acados_model() -> AcadosModel:

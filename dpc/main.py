@@ -1249,7 +1249,11 @@ def plot_cones(
 ################################################################################
 
 
-def closed_loop(controller: Controller, data_file: str = "closed_loop_data.npz"):
+def closed_loop(
+    controller: Controller,
+    track_name: str = "fsds_competition_1",
+    data_file: str = "closed_loop_data.npz",
+):
     """
     we store all the open loop predictions into big arrays that we dump into npz files
     we dump x_ref (nx x (Nf+1)), x_pred (nx x (Nf+1)), u_pred (nu x Nf)
@@ -1272,9 +1276,9 @@ def closed_loop(controller: Controller, data_file: str = "closed_loop_data.npz")
     discrete_dynamics = get_discrete_dynamics()
 
     # import track data
-    center_line, _ = load_center_line("../data/fsds_competition_1/center_line.csv")
+    center_line, _ = load_center_line(f"../data/{track_name}/center_line.csv")
     blue_cones, yellow_cones, big_orange_cones, small_orange_cones, _, _ = load_cones(
-        "../data/fsds_competition_1/cones.csv"
+        f"../data/{track_name}/cones.csv"
     )
 
     # create motion planner
@@ -1638,6 +1642,7 @@ if __name__ == "__main__":
             q_phi_f=500.0,
             q_v_f=1000.0,
         ),
+        track_name="fsds_competition_1",
         data_file="closed_loop_data.npz",
     )
     visualize_file("closed_loop_data.npz")

@@ -200,16 +200,8 @@ private:
         bool use_kin6(std::hypot(x[3], x[4]) < this->get_parameter("v_dyn").as_double());
         try {
             if (use_kin6) {
-                sim_in_set(kin6_sim_config,
-                           kin6_sim_dims,
-                           kin6_sim_in,
-                           "x",
-                           this->x);
-                sim_in_set(kin6_sim_config,
-                           kin6_sim_dims,
-                           kin6_sim_in,
-                           "u",
-                           this->u);
+                sim_in_set(kin6_sim_config, kin6_sim_dims, kin6_sim_in, "x", this->x);
+                sim_in_set(kin6_sim_config, kin6_sim_dims, kin6_sim_in, "u", this->u);
             } else {
                 sim_in_set(dyn6_sim_config,
                            dyn6_sim_dims,

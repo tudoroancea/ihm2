@@ -131,7 +131,7 @@ void save_center_line(
 
 Track::Track(const std::string& csv_file) {
     rapidcsv::Document doc(csv_file);
-    size_t row_count = doc.GetRowCount();
+    auto row_count = static_cast<long long>(doc.GetRowCount());
     s_ref.resize(row_count);
     X_ref.resize(row_count);
     Y_ref.resize(row_count);
@@ -139,7 +139,7 @@ Track::Track(const std::string& csv_file) {
     kappa_ref.resize(row_count);
     right_width.resize(row_count);
     left_width.resize(row_count);
-    for (size_t i = 0; i < row_count; ++i) {
+    for (long long i = 0; i < row_count; ++i) {
         s_ref(i) = doc.GetCell<double>("s_ref", i);
         X_ref(i) = doc.GetCell<double>("X_ref", i);
         Y_ref(i) = doc.GetCell<double>("Y_ref", i);
@@ -159,7 +159,7 @@ Track::Track(const std::string& csv_file) {
     coeffs_right_width.resize(row_count - 1, 2);
     coeffs_left_width.resize(row_count - 1, 2);
 
-    for (size_t i = 0; i < row_count - 1; ++i) {
+    for (long long i = 0; i < row_count - 1; ++i) {
         coeffs_X(i, 0) = X_ref(i);
         coeffs_X(i, 1) = (X_ref(i + 1) - X_ref(i)) / delta_s(i);
 
